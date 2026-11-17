@@ -4,3 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .cache/
+
+# Personal/private documents - never publish
+docs/*
+!docs/aks-basics.md

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocuChat Ops</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085;
+    --border: #e3e6eb; --accent: #0b5394; --accent-text: #ffffff;
+    --user: #0b5394; --bot: #eef1f5; --error: #b42318; --ok: #067647; --warn: #b54708;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --panel: #1a1f27; --text: #e6e9ef; --muted: #98a2b3;
+      --border: #2b323d; --accent: #4f8fd6; --accent-text: #0b1020;
+      --user: #2f6db3; --bot: #232a35; --error: #f97066; --ok: #47cd89; --warn: #fdb022;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  .app { display: grid; grid-template-columns: 310px 1fr; height: 100dvh; }
+  aside { background: var(--panel); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  h1 { font-size: 18px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
+  .privacy { border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+  .privacy b { color: var(--ok); }
+  .timer { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .timer.low { color: var(--warn); }
+  .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 20px 14px; text-align: center; cursor: pointer; transition: .15s; }
+  .drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .drop strong { display: block; margin-bottom: 4px; }
+  .drop small { color: var(--muted); }
+  .files { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .files li { font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .files li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files li span:last-child { color: var(--muted); white-space: nowrap; }
+  .files li.err span:last-child { color: var(--error); white-space: normal; text-align: right; }
+  main { display: flex; flex-direction: column; min-width: 0; }
+  .topbar { display: none; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); align-items: center; justify-content: space-between; }
+  .msgs { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 440px; }
+  .msg { max-width: min(760px, 88%); padding: 12px 14px; border-radius: 14px; word-wrap: break-word; }
+  .msg p { margin: 0 0 8px; white-space: pre-wrap; } .msg p:last-child { margin: 0; }
+  .msg.user { align-self: flex-end; background: var(--user); color: #fff; border-bottom-right-radius: 4px; white-space: pre-wrap; }
+  .msg.bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
+  .msg.err { color: var(--error); }
+  .msg pre { overflow-x: auto; background: var(--panel); padding: 10px; border-radius: 8px; font-size: 13px; }
+  .diagram { background: #fff; border-radius: 10px; padding: 12px; margin: 8px 0; overflow-x: auto; }
+  .diagram svg { max-width: 100%; height: auto; }
+  .src { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .src span { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
+  details { margin-top: 8px; font-size: 13px; }
+  summary { cursor: pointer; color: var(--accent); }
+  .cite { border-left: 3px solid var(--accent); padding: 6px 10px; margin: 8px 0 0; background: var(--panel); border-radius: 0 8px 8px 0; color: var(--muted); }
+  .cite b { color: var(--text); font-weight: 600; }
+  .typing { color: var(--muted); font-style: italic; }
+  form { display: flex; gap: 10px; padding: 16px 24px 20px; border-top: 1px solid var(--border); background: var(--panel); }
+  textarea { flex: 1; resize: none; min-height: 46px; max-height: 160px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; font: inherit; background: var(--bg); color: var(--text); }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { border: 0; border-radius: 12px; padding: 0 18px; min-height: 46px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); min-height: 36px; padding: 0 12px; }
+  .danger { background: transparent; color: var(--error); border: 1px solid var(--border); min-height: 36px; font-size: 13px; }
+  .hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+  .hints button { min-height: 32px; font-size: 13px; font-weight: 500; }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; }
+    aside { position: fixed; inset: 0 15% 0 0; z-index: 10; transform: translateX(-105%); transition: transform .2s; box-shadow: 0 0 40px rgba(0,0,0,.25); }
+    aside.open { transform: none; }
+    .topbar { display: flex; }
+    .msgs { padding: 16px; }
+    form { padding: 12px 16px 16px; }
+    .msg { max-width: 94%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside id="side">
+    <div>
+      <h1>DocuChat Ops</h1>
+      <p class="sub">Private Q&amp;A over your documents.</p>
+    </div>
+    <div class="privacy">
+      <div><b>●</b> Nothing is stored permanently. Files are read in memory and never saved.</div>
+      <div>This session's data is deleted in <span class="timer" id="timer">--:--:--</span></div>
+      <button class="danger" id="wipe" type="button">Delete my data now</button>
+    </div>
+    <label class="drop" id="drop">
+      <strong>Add documents</strong>
+      <small>PDF, Word (.docx), .md, .txt — up to 10 MB each</small>
+      <input type="file" id="file" accept=".pdf,.docx,.md,.txt" multiple hidden>
+    </label>
+    <div>
+      <p class="sub" id="docsTitle">Documents in this session</p>
+      <ul class="files" id="files"></ul>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <strong>DocuChat Ops</strong>
+      <button class="ghost" id="toggle" type="button">Documents</button>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <form id="ask">
+      <textarea id="q" rows="1" placeholder="Ask a question…" aria-label="Ask a question (Enter to send, Shift+Enter for new line)" required></textarea>
+      <button id="send">Send</button>
+    </form>
+  </main>
+</div>
+
+<script type="module">
+let mermaid = null;
+try {
+  mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs")).default;
+  mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" });
+} catch { /* diagrams fall back to showing their source */ }
+
+const $ = id => document.getElementById(id);
+const msgs = $("msgs"), q = $("q"), send = $("send"), files = $("files");
+let session = null, timerHandle = null, diagramCount = 0;
+
+function showEmpty() {
+  msgs.innerHTML = `<div class="empty" id="empty">
+    <p><strong>Add a document</strong>, then ask anything about it.</p>
+    <p>Answers come only from your files, with the exact passages shown.</p>
+    <div class="hints">
+      <button class="ghost" type="button" data-q="Summarise the main points">Summarise</button>
+      <button class="ghost" type="button" data-q="Explain how it works with a diagram">Explain with a diagram</button>
+    </div></div>`;
+}
+msgs.addEventListener("click", e => { const b = e.target.closest("[data-q]"); if (b) { q.value = b.dataset.q; $("ask").requestSubmit(); } });
+
+async function api(method, url, body, headers = {}) {
+  const r = await fetch(url, { method, headers, body });
+  if (r.status === 204) return null;
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(typeof data.detail === "string" ? data.detail : "Request failed (" + r.status + ")"); e.status = r.status; throw e; }
+  return data;
+}
+
+// ---- session ----
+async function startSession() {
+  const s = await api("POST", "/sessions");
+  session = s; sessionStorage.setItem("sid", s.session_id);
+  renderDocs([]); showEmpty(); startTimer();
+}
+async function resumeOrStart() {
+  const sid = sessionStorage.getItem("sid");
+  if (sid) {
+    try { const s = await api("GET", "/sessions/" + sid); session = s; renderDocs(s.documents); showEmpty(); startTimer(); return; }
+    catch { /* expired or deleted - start fresh */ }
+  }
+  await startSession();
+}
+function startTimer() {
+  clearInterval(timerHandle);
+  const tick = () => {
+    const left = Math.max(0, session.expires_at - Math.floor(Date.now() / 1000));
+    const h = String(Math.floor(left / 3600)).padStart(2, "0"), m = String(Math.floor(left % 3600 / 60)).padStart(2, "0"), s = String(left % 60).padStart(2, "0");
+    $("timer").textContent = `${h}:${m}:${s}`;
+    $("timer").classList.toggle("low", left < 600);
+    if (left === 0) { clearInterval(timerHandle); startSession(); }
+  };
+  tick(); timerHandle = setInterval(tick, 1000);
+}
+$("wipe").addEventListener("click", async () => {
+  if (!confirm("Delete all documents in this session now? This cannot be undone.")) return;
+  await api("DELETE", "/sessions/" + session.session_id).catch(() => {});
+  await startSession();
+});
+
+// ---- documents ----
+function fileRow(name, status, isErr) {
+  const li = document.createElement("li");
+  li.innerHTML = "<span></span><span></span>";
+  li.firstChild.textContent = name; li.firstChild.title = name;
+  li.lastChild.textContent = status;
+  if (isErr) li.classList.add("err");
+  return li;
+}
+function renderDocs(docs) {
+  files.replaceChildren(...docs.map(d => fileRow(d.source, d.chunks + " chunks")));
+  $("docsTitle").textContent = docs.length ? `Documents in this session (${docs.length})` : "No documents yet";
+}
+async function refreshDocs() {
+  const s = await api("GET", "/sessions/" + session.session_id);
+  renderDocs(s.documents);
+}
+async function upload(list) {
+  for (const f of list) {
+    const li = fileRow(f.name, "Uploading…");
+    files.prepend(li);
+    try {
+      await api("POST", `/sessions/${session.session_id}/files?name=${encodeURIComponent(f.name)}`, f,
+        { "Content-Type": "application/octet-stream" });
+      li.lastChild.textContent = "Done ✓";
+    } catch (err) {
+      if (err.status === 404) { await startSession(); return upload(list); }
+      li.classList.add("err"); li.lastChild.textContent = err.message; continue;
+    }
+  }
+  const errors = [...files.querySelectorAll("li.err")];
+  await refreshDocs();
+  errors.forEach(e => files.prepend(e));  // keep failures visible after the refresh
+}
+$("file").addEventListener("change", e => { upload([...e.target.files]); e.target.value = ""; });
+const drop = $("drop");
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => upload([...e.dataTransfer.files]));
+$("toggle").addEventListener("click", () => $("side").classList.toggle("open"));
+
+// ---- chat ----
+function addMsg(role, text) {
+  $("empty")?.remove();
+  const el = document.createElement("div");
+  el.className = "msg " + role;
+  el.textContent = text;
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+
+// Escape everything first, then allow only bold, inline code and rule lines - no HTML from the model gets through.
+function miniMarkdown(text) {
+  const esc = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc
+    .replace(/^\s*---\s*$/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/^(\s*)[*-] /gm, "$1• ");
+}
+
+async function renderAnswer(data) {
+  $("empty")?.remove();
+  const el = document.createElement("div");
+  el.className = "msg bot";
+  // Split the answer into text and fenced code blocks; mermaid blocks become diagrams.
+  const parts = data.answer.split(/```(\w*)\n([\s\S]*?)```/g);
+  for (let i = 0; i < parts.length; i += 3) {
+    if (parts[i].trim()) { const p = document.createElement("p"); p.innerHTML = miniMarkdown(parts[i].trim()); el.appendChild(p); }
+    if (i + 2 >= parts.length) break;
+    const lang = parts[i + 1], code = parts[i + 2];
+    if (lang === "mermaid" && mermaid) {
+      const box = document.createElement("div"); box.className = "diagram";
+      try { box.innerHTML = (await mermaid.render("d" + (++diagramCount), code)).svg; }
+      catch { const pre = document.createElement("pre"); pre.textContent = code; box.replaceChildren(pre); }
+      el.appendChild(box);
+    } else {
+      const pre = document.createElement("pre"); pre.textContent = code; el.appendChild(pre);
+    }
+  }
+  if (data.sources?.length) {
+    const s = document.createElement("div"); s.className = "src";
+    data.sources.forEach(n => { const t = document.createElement("span"); t.textContent = n; s.appendChild(t); });
+    el.appendChild(s);
+  }
+  if (data.citations?.length) {
+    const d = document.createElement("details");
+    d.innerHTML = `<summary>Show the ${data.citations.length} passages used</summary>`;
+    data.citations.forEach(c => {
+      const div = document.createElement("div"); div.className = "cite";
+      div.innerHTML = "<b></b><br><span></span>";
+      div.querySelector("b").textContent = `${c.source} · match ${Math.round(c.score * 100)}%`;
+      div.querySelector("span").textContent = c.text;
+      d.appendChild(div);
+    });
+    el.appendChild(d);
+  }
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+$("ask").addEventListener("submit", async e => {
+  e.preventDefault();
+  const question = q.value.trim();
+  if (!question) return;
+  addMsg("user", question);
+  q.value = ""; q.style.height = "";
+  send.disabled = true;
+  const pending = addMsg("bot typing", "Thinking…");
+  try {
+    const data = await api("POST", `/sessions/${session.session_id}/chat`, JSON.stringify({ question }),
+      { "Content-Type": "application/json" });
+    pending.remove();
+    await renderAnswer(data);
+  } catch (err) {
+    pending.remove();
+    addMsg("bot err", err.status === 404 ? "Your session expired and its data was deleted. Please add your documents again." : "Error: " + err.message);
+    if (err.status === 404) await startSession();
+  } finally {
+    send.disabled = false; q.focus();
+  }
+});
+q.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("ask").requestSubmit(); } });
+q.addEventListener("input", () => { q.style.height = "auto"; q.style.height = Math.min(q.scrollHeight, 160) + "px"; });
+
+resumeOrStart().catch(err => addMsg("bot err", "Could not start a session: " + err.message));
+</script>
+</body>
+</html>
