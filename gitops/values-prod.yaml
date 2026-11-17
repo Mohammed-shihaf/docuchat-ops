@@ -2,7 +2,7 @@
 # CI updates image.tag automatically after a green build on main (see .github/workflows/ci.yml).
 image:
   repository: ghcr.io/mohammed-shihaf/docuchat-ops
-  tag: "sha-bb5041a"
+  tag: "sha-7101b87"
   pullPolicy: IfNotPresent
 
 replicaCount: 2
