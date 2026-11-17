@@ -4,12 +4,15 @@ import os
 from types import SimpleNamespace
 
 os.environ["WARMUP"] = "false"
+os.environ["SECRET_KEY"] = "test-secret"
+os.environ["DATABASE_PATH"] = ":memory:"
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import sessions
-from app.main import app, get_rag
+from app.db import Store
+from app.main import app, get_rag, get_store
 from app.parsers import UnsupportedFile, extract_text
 from app.rag import RagService, build_messages, chunk_text
 
@@ -65,8 +68,17 @@ def rag():
 
 
 @pytest.fixture
-def client(rag):
+def store():
+    return Store(":memory:")
+
+
+@pytest.fixture
+def client(rag, store, monkeypatch):
+    import app.main as main_mod
+    from app.ratelimit import RateLimiter
+    monkeypatch.setattr(main_mod, "write_limiter", RateLimiter(10_000))  # isolate tests from each other
     app.dependency_overrides[get_rag] = lambda: rag
+    app.dependency_overrides[get_store] = lambda: store
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -198,8 +210,8 @@ def test_upload_rejects_unsupported_and_empty(client, sid):
 def test_upload_size_limit(client, sid, monkeypatch):
     import dataclasses
 
-    import app.main
-    monkeypatch.setattr(app.main, "settings", dataclasses.replace(app.main.settings, max_file_bytes=10))
+    import app.main as main_mod
+    monkeypatch.setattr(main_mod, "settings", dataclasses.replace(main_mod.settings, max_file_bytes=10))
     assert upload(client, sid, "big.txt", b"x" * 11).status_code == 413
 
 
@@ -225,9 +237,9 @@ def test_client_key_does_not_store_raw_ip():
 
 
 def test_api_returns_429_when_limited(client, monkeypatch):
-    import app.main
+    import app.main as main_mod
     from app.ratelimit import RateLimiter
-    monkeypatch.setattr(app.main, "write_limiter", RateLimiter(limit=1))
+    monkeypatch.setattr(main_mod, "write_limiter", RateLimiter(limit=1))
     assert client.post("/sessions").status_code == 201
     r = client.post("/sessions")
     assert r.status_code == 429 and r.headers["Retry-After"] == "60"

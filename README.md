@@ -27,8 +27,31 @@ Upload PDFs (including scanned ones), Word files, images or notes. Ask questions
 | Isolation | A 128-bit random session ID is the only key. A NetworkPolicy lets only the API reach Qdrant. |
 | Logs and metrics are clean | No access logs and no file names, questions or session IDs. Metrics use route templates. The rate limiter keeps only salted hashes of IPs, in RAM. |
 | No server-side chat history | Chat history lives only in the browser tab. |
+| Accounts store the minimum | Email, plan, usage counts and payment records only. Login and cookie tokens are stored as hashes, and card data never reaches us (Razorpay). |
 
 > The LLM provider still processes the question and the retrieved passages. For the strictest setup, use a self-hosted model (`LLM_BASE_URL` pointing at Ollama/vLLM) or a provider with a zero-data-retention agreement.
+
+## Accounts, plans and payments
+- **Passwordless sign-in.** A one-time email link that expires in 15 minutes. Only SHA-256 hashes of login and cookie tokens are stored. The cookie is HttpOnly and SameSite=Lax.
+- **Per-user segregation:**
+  - Every chat session is bound to its owner. The collection name carries a keyed HMAC of the user ID (`s_<id>_<expiry>_<owner>`), so a session needs **both** its ID and the owner's sign-in.
+  - Other users, guests and guessed IDs all get the same 404.
+  - Every account table (`usage`, `payments`, `auth_sessions`) is keyed by `user_id`, and every query filters on it.
+- **Plans:**
+  - **Guest:** 15 questions and 3 files per session, 1 h sessions.
+  - **Free:** 100 questions per month.
+  - **Pro:** ₹299, 1,000 questions per month.
+  - **Team:** ₹999, 5,000 questions per month.
+  - Quotas are enforced atomically per user per month, and over-limit requests get HTTP 402 with an upgrade prompt.
+- **Razorpay:**
+  - The server creates an order tied to the user, and the customer pays on Razorpay Checkout (UPI, card or netbanking; we never see card data).
+  - The HMAC signature is verified on `/billing/verify`, and a user cannot claim someone else's order.
+  - The signed, idempotent `/billing/webhook` is the server-to-server backup.
+  - A paid plan lasts 30 days, early renewals stack, and it falls back to Free on expiry.
+- **Billing page:** shows the plan, usage this month, and only your own payment history. **Delete my account** erases your email, usage and payment records.
+- **The accounts DB holds only** email, plan, usage counters, payment records and token hashes. **Never** documents, file names, questions or answers. SQLite lives on a small volume; move it to Postgres before running more than one API replica.
+
+Local dev: `docker compose` sets `DEV_LOGIN=true`, so the sign-in link is shown on screen. For real email, set `SMTP_*` (for example Brevo's free tier). For payments, set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET` (test keys first). Always set `SECRET_KEY`.
 
 ## Features
 - PDF, **scanned PDF and image OCR** (Tesseract), DOCX, Markdown and text. Limits: 10 MB per file, 20 files per session.

@@ -5,7 +5,7 @@ image:
   tag: "sha-7101b87"
   pullPolicy: IfNotPresent
 
-replicaCount: 2
+replicaCount: 1  # SQLite accounts DB (see chart values)
 
 ingress:
   enabled: false   # enable with your domain + TLS secret

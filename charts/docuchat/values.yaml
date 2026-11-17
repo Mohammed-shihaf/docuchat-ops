@@ -4,7 +4,8 @@ image:
   tag: ""                 # defaults to .Chart.AppVersion
   pullPolicy: IfNotPresent
 
-replicaCount: 2
+# SQLite accounts DB on a ReadWriteOnce volume -> run ONE API replica. Move accounts to Postgres before scaling out.
+replicaCount: 1
 
 llm:
   baseUrl: https://api.groq.com/openai/v1
@@ -17,22 +18,32 @@ llm:
 app:
   sessionTtlSeconds: 7200
   maxFileMb: 10
-  maxFilesPerSession: 20
+  maxFilesPerSession: 50   # hard ceiling; each plan sets its own lower limit
   rateLimitPerMinute: 30
   trustProxyHeaders: true   # behind the ingress controller
+  publicUrl: http://localhost:8080
+  cookieSecure: false       # true when served over HTTPS
+
+accounts:
+  # Secret with SECRET_KEY, RAZORPAY_KEY_ID/SECRET, RAZORPAY_WEBHOOK_SECRET, SMTP_* (all optional except SECRET_KEY)
+  existingSecret: docuchat-accounts
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
 
 resources:
   requests: { cpu: 250m, memory: 768Mi }
   limits:   { memory: 1536Mi }
 
 autoscaling:
-  enabled: true
+  enabled: false            # see replicaCount note above
   minReplicas: 2
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
 
 podDisruptionBudget:
-  minAvailable: 1
+  minAvailable: 0
 
 service:
   type: ClusterIP

@@ -15,7 +15,7 @@ RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-smal
 ENV HF_HUB_OFFLINE=1
 COPY app/ app/
 # Run as a non-root user (a common Kubernetes security requirement).
-RUN useradd --uid 10001 --create-home appuser && chown -R appuser /app
+RUN useradd --uid 10001 --create-home appuser && mkdir -p /data && chown -R appuser /app /data
 USER 10001
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"

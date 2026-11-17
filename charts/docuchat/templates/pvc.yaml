@@ -1,0 +1,17 @@
+{{- if .Values.accounts.persistence.enabled }}
+# Accounts DB (email, plan, usage, payments). Documents never go here - they stay in Qdrant's RAM.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "docuchat.fullname" . }}-accounts
+  labels:
+    {{- include "docuchat.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.accounts.persistence.size }}
+  {{- with .Values.accounts.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}

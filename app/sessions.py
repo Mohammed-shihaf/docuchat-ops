@@ -1,7 +1,12 @@
 """Ephemeral sessions: each visitor gets a private collection that is deleted automatically.
 
-The expiry time is encoded in the collection name (s_<id>_<expires_epoch>), so cleanup keeps
-working after a restart without storing any session table anywhere.
+Collection name:  s_<session_id>_<expires_epoch>_<owner>
+  * session_id - random 128-bit token (the key the browser holds)
+  * expires    - cleanup keeps working after a restart without any session table
+  * owner      - keyed hash of the account that created it, or 'anon' (see auth.owner_tag)
+
+A request must present BOTH the session ID and the matching owner (from the sign-in cookie), so a leaked or
+guessed session ID is useless to anyone else - including other signed-in users.
 """
 import re
 import secrets
@@ -10,27 +15,30 @@ import time
 from .config import settings
 
 PREFIX = "s_"
-NAME_RE = re.compile(r"^s_([a-f0-9]{32})_(\d+)$")
+NAME_RE = re.compile(r"^s_([a-f0-9]{32})_(\d+)(?:_([a-f0-9]{12}|anon))?$")
 
 
-def new_session(now: float | None = None) -> tuple[str, int]:
-    """Return (session_id, expires_at). The id is a random 128-bit token - it is the only key to the data."""
+def new_session(now: float | None = None, ttl_seconds: int | None = None) -> tuple[str, int]:
+    """Return (session_id, expires_at). The id is a random 128-bit token."""
     now = time.time() if now is None else now
-    return secrets.token_hex(16), int(now) + settings.session_ttl_seconds
+    return secrets.token_hex(16), int(now) + (ttl_seconds or settings.session_ttl_seconds)
 
 
-def collection_name(session_id: str, expires_at: int) -> str:
-    return f"{PREFIX}{session_id}_{expires_at}"
+def collection_name(session_id: str, expires_at: int, owner: str = "anon") -> str:
+    return f"{PREFIX}{session_id}_{expires_at}_{owner}"
 
 
-def find_collection(qdrant, session_id: str, now: float | None = None) -> tuple[str, int] | None:
-    """Look up a live session's collection; expired or unknown sessions return None."""
+def find_collection(qdrant, session_id: str, owner: str = "anon", now: float | None = None) -> tuple[str, int] | None:
+    """Look up a live session owned by `owner`. Expired, unknown or someone else's sessions return None,
+    so callers can't distinguish 'not yours' from 'doesn't exist' (no ownership oracle)."""
     now = time.time() if now is None else now
     for c in qdrant.get_collections().collections:
         m = NAME_RE.match(c.name)
         if m and m.group(1) == session_id:
             expires_at = int(m.group(2))
-            return (c.name, expires_at) if expires_at > now else None
+            if expires_at <= now or (m.group(3) or "anon") != owner:
+                return None
+            return c.name, expires_at
     return None
 
 

@@ -13,6 +13,12 @@ services:
     env_file: .env
     environment:
       QDRANT_URL: http://qdrant:6333
+      DEV_LOGIN: "true"      # local only: sign-in link is shown on screen instead of emailed
     depends_on: [qdrant]
     read_only: true          # the container cannot write files anywhere...
     tmpfs: [/tmp]            # ...except a RAM-only /tmp
+    volumes:
+      - accounts:/data       # ...and the accounts DB (email, plan, usage, payments - never documents)
+
+volumes:
+  accounts:

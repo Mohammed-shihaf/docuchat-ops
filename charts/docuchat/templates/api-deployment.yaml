@@ -55,6 +55,17 @@ spec:
               value: {{ .Values.app.rateLimitPerMinute | quote }}
             - name: TRUST_PROXY_HEADERS
               value: {{ .Values.app.trustProxyHeaders | quote }}
+            - name: PUBLIC_URL
+              value: {{ .Values.app.publicUrl | quote }}
+            - name: COOKIE_SECURE
+              value: {{ .Values.app.cookieSecure | quote }}
+            - name: DATABASE_PATH
+              value: /data/docuchat.db
+          # SECRET_KEY, RAZORPAY_* and SMTP_* come from this optional Secret (never from values files).
+          envFrom:
+            - secretRef:
+                name: {{ .Values.accounts.existingSecret }}
+                optional: true
           startupProbe:
             httpGet: { path: /healthz, port: http }
             periodSeconds: 2
@@ -72,7 +83,16 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /data
       volumes:
+        - name: data
+          {{- if .Values.accounts.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "docuchat.fullname" . }}-accounts
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
         - name: tmp
           emptyDir:
             medium: Memory          # OCR scratch space stays in RAM

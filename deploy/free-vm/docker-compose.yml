@@ -19,9 +19,13 @@ services:
     environment:
       QDRANT_URL: http://qdrant:6333
       TRUST_PROXY_HEADERS: "true"           # Caddy sets X-Forwarded-For
+      PUBLIC_URL: https://${DOMAIN}
+      COOKIE_SECURE: "true"
     depends_on: [qdrant]
     read_only: true
     tmpfs: [/tmp]
+    volumes:
+      - accounts:/data                      # accounts DB only (email, plan, usage, payments) - back this up
     mem_limit: 2g
 
   caddy:                                    # free automatic HTTPS (Let's Encrypt)
@@ -43,5 +47,6 @@ services:
     mem_limit: 8g
 
 volumes:
+  accounts:
   caddy_data:
   ollama_models:
