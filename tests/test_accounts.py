@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 import app.billing
 import app.main
 from app import auth
-from app.main import _guest_questions
 from app.main import app as api
 from tests.test_app import upload
 
@@ -66,23 +65,26 @@ def test_logout_revokes_cookie(two_users):
 
 # ---------------------------------------------------------------- segregation
 
-def test_users_cannot_access_each_others_sessions(two_users, client):
+def test_users_cannot_access_each_others_sessions(two_users, client, guest):
     a, b = two_users
     sid = a.post("/sessions").json()["session_id"]
     upload(a, sid, "asha-salary.md", b"Asha earns 92,000 rupees.")
-    # Ravi, a guest and an anonymous request all get the same 404 - even with the exact session ID.
-    for other in (b, client):
-        assert other.get(f"/sessions/{sid}").status_code == 404
-        assert other.post(f"/sessions/{sid}/chat", json={"question": "salary?"}).status_code == 404
-        assert upload(other, sid, "x.md", b"inject").status_code == 404
+    # Ravi and a third user get 404 even with the exact session ID; a signed-out browser gets 401.
+    for other, code in ((b, 404), (client, 404), (guest, 401)):
+        assert other.get(f"/sessions/{sid}").status_code == code
+        assert other.post(f"/sessions/{sid}/chat", json={"question": "salary?"}).status_code == code
+        assert upload(other, sid, "x.md", b"inject").status_code == code
         other.delete(f"/sessions/{sid}")                     # can't delete it either
     assert a.get(f"/sessions/{sid}").json()["documents"] == [{"source": "asha-salary.md", "chunks": 1}]
 
 
-def test_guest_session_not_reachable_after_signing_in(client, store):
-    sid = client.post("/sessions").json()["session_id"]
-    a = signed_in_client(store, "asha@example.com")
-    assert a.get(f"/sessions/{sid}").status_code == 404
+def test_signed_out_users_cannot_use_the_app(guest):
+    assert guest.post("/sessions").status_code == 401
+    fake = "a" * 32
+    assert guest.get(f"/sessions/{fake}").status_code == 401
+    assert upload(guest, fake, "a.md", b"x").status_code == 401
+    assert guest.post(f"/sessions/{fake}/chat", json={"question": "hi"}).status_code == 401
+    assert guest.get("/me").json() == {"signed_in": False, "payments_enabled": False}
 
 
 def test_owner_tag_reveals_nothing_and_is_keyed():
@@ -113,19 +115,11 @@ def test_delete_account_erases_records(two_users, store):
 
 # ---------------------------------------------------------------- quotas
 
-def test_guest_question_limit(client):
-    sid = client.post("/sessions").json()["session_id"]
-    upload(client, sid, "a.md", b"hello")
-    _guest_questions[sid] = 15
-    r = client.post(f"/sessions/{sid}/chat", json={"question": "hi"})
-    assert r.status_code == 402 and "sign in" in r.json()["detail"]
-
-
 def test_monthly_question_quota_per_user(two_users, store):
     a, b = two_users
     a_id = store.one("SELECT id FROM users WHERE email = 'asha@example.com'")["id"]
     with store.tx() as c:
-        c.execute("INSERT INTO usage (user_id, period, questions) VALUES (?, ?, 100)", (a_id, store.period()))
+        c.execute("INSERT INTO usage (user_id, period, questions) VALUES (?, ?, 20)", (a_id, store.period()))
     sa = a.post("/sessions").json()["session_id"]
     sb = b.post("/sessions").json()["session_id"]
     upload(a, sa, "a.md", b"x")
@@ -134,11 +128,40 @@ def test_monthly_question_quota_per_user(two_users, store):
     assert b.post(f"/sessions/{sb}/chat", json={"question": "q"}).status_code == 200   # Ravi unaffected
 
 
-def test_guest_file_limit(client):
-    sid = client.post("/sessions").json()["session_id"]
-    for i in range(3):
-        assert upload(client, sid, f"{i}.md", b"x").status_code == 200
-    assert upload(client, sid, "3.md", b"x").status_code == 402
+def test_free_plan_file_limit(two_users):
+    a, _ = two_users
+    sid = a.post("/sessions").json()["session_id"]
+    for i in range(2):
+        assert upload(a, sid, f"{i}.md", b"x").status_code == 200
+    r = upload(a, sid, "2.md", b"x")
+    assert r.status_code == 402 and "upgrade" in r.json()["detail"]
+
+
+DIAGRAM_REPLY = "Build, then deploy [flow.md]\n```mermaid\nflowchart TD\nA-->B\n```"
+
+
+def llm_replying(text):
+    return lambda model, messages, temperature: SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+
+
+def test_free_plan_hides_passages_and_diagrams(two_users, rag):
+    a, _ = two_users
+    sid = a.post("/sessions").json()["session_id"]
+    upload(a, sid, "flow.md", b"Build then deploy.")
+    rag.llm.chat.completions.create = llm_replying(DIAGRAM_REPLY)   # the model ignores the no-diagram rule
+    r = a.post(f"/sessions/{sid}/chat", json={"question": "Explain it with a diagram"}).json()
+    assert "mermaid" not in r["answer"] and "```" not in r["answer"]          # stripped server-side anyway
+    assert r["diagram_locked"] and r["passages_locked"] and r["citations"] == []
+    assert r["sources"] == ["flow.md"]                                        # file names still shown
+
+
+def test_pro_plan_gets_passages_and_diagrams(client, rag):
+    sid = client.post("/sessions").json()["session_id"]                      # `client` is a Pro user
+    upload(client, sid, "flow.md", b"Build then deploy.")
+    rag.llm.chat.completions.create = llm_replying(DIAGRAM_REPLY)
+    r = client.post(f"/sessions/{sid}/chat", json={"question": "Explain it with a diagram"}).json()
+    assert "```mermaid" in r["answer"] and r["citations"] and not r["passages_locked"] and not r["diagram_locked"]
 
 
 # ---------------------------------------------------------------- billing
@@ -165,8 +188,8 @@ def sign(order_id, payment_id):
     return hmac.new(KEY_SECRET.encode(), f"{order_id}|{payment_id}".encode(), hashlib.sha256).hexdigest()
 
 
-def test_checkout_requires_sign_in(client, razorpay):
-    assert client.post("/billing/checkout", json={"plan": "pro"}).status_code == 401
+def test_checkout_requires_sign_in(guest, razorpay):
+    assert guest.post("/billing/checkout", json={"plan": "pro"}).status_code == 401
 
 
 def test_checkout_and_verify_upgrades_only_that_user(two_users, razorpay):

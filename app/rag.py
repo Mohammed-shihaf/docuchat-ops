@@ -1,18 +1,27 @@
 """Retrieval-Augmented Generation: chunk -> embed -> store -> retrieve -> prompt -> answer."""
+import re
 import uuid
 
 from . import metrics as m
 from .config import settings
 
-SYSTEM_PROMPT = (
+BASE_PROMPT = (
     "You answer questions using ONLY the context provided. "
     "If the answer is not in the context, say you don't know. "
     "After each fact, cite the source file name in brackets, e.g. [aks-basics.md]. "
+)
+NO_DIAGRAM_RULE = "Answer in text only. Never output diagrams, mermaid or other code blocks."
+# Fenced code blocks (diagrams) and diagram requests - used to enforce the paywall server-side.
+CODE_BLOCK_RE = re.compile(r"```[\w-]*\s*\n[\s\S]*?```")
+DIAGRAM_ASK_RE = re.compile(r"\b(diagram|flow ?chart|visuali[sz]e|draw|mermaid)\b", re.IGNORECASE)
+
+DIAGRAM_RULE = (
     "If the user asks for a diagram, flowchart or visual, also include ONE diagram as a fenced "
     "```mermaid code block using flowchart TD, built only from facts in the context. "
     "Use short plain node IDs with quoted labels, exactly like: A[\"Developer\"] --> B[\"GitHub\"]. "
     "Never quote node IDs and do not use parentheses inside labels."
 )
+SYSTEM_PROMPT = BASE_PROMPT + DIAGRAM_RULE
 
 
 def chunk_text(text: str, size: int = settings.chunk_size, overlap: int = settings.chunk_overlap) -> list[str]:
@@ -27,10 +36,10 @@ def chunk_text(text: str, size: int = settings.chunk_size, overlap: int = settin
     return chunks
 
 
-def build_messages(question: str, hits: list[dict]) -> list[dict]:
+def build_messages(question: str, hits: list[dict], allow_diagrams: bool = True) -> list[dict]:
     context = "\n\n".join(f"[{h['source']}]\n{h['text']}" for h in hits)
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": BASE_PROMPT + (DIAGRAM_RULE if allow_diagrams else NO_DIAGRAM_RULE)},
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
     ]
 
@@ -103,7 +112,8 @@ class RagService:
         result = self.qdrant.query_points(collection, query=vector, limit=settings.top_k)
         return [{"source": p.payload["source"], "text": p.payload["text"], "score": p.score} for p in result.points]
 
-    def answer(self, question: str, collection: str = settings.collection) -> dict:
+    def answer(self, question: str, collection: str = settings.collection,
+               allow_diagrams: bool = True, show_passages: bool = True) -> dict:
         hits = self.retrieve(question, collection)
         if not hits:
             m.ANSWERS.labels("no_docs").inc()
@@ -111,16 +121,25 @@ class RagService:
         m.RETRIEVAL_SCORE.observe(max(h["score"] for h in hits))
         with m.LLM_LATENCY.time():
             resp = self.llm.chat.completions.create(
-                model=settings.llm_model, messages=build_messages(question, hits), temperature=0.1
+                model=settings.llm_model, messages=build_messages(question, hits, allow_diagrams), temperature=0.1
             )
         if usage := getattr(resp, "usage", None):
             m.LLM_TOKENS.labels("prompt").inc(usage.prompt_tokens or 0)
             m.LLM_TOKENS.labels("completion").inc(usage.completion_tokens or 0)
         answer = resp.choices[0].message.content or ""
+        diagram_locked = False
+        if not allow_diagrams:
+            # Enforce on the server, not just in the prompt: strip any code/diagram block the model still emits.
+            stripped = CODE_BLOCK_RE.sub("", answer).strip()
+            diagram_locked = stripped != answer.strip() or bool(DIAGRAM_ASK_RE.search(question))
+            answer = stripped
         m.ANSWERS.labels("dont_know" if answer.lower().startswith("i don't know") else "yes").inc()
         return {
             "answer": answer,
             "sources": sorted({h["source"] for h in hits}),
-            # The exact passages the answer was grounded on, so users can verify it.
-            "citations": [{"source": h["source"], "text": h["text"], "score": round(h["score"], 3)} for h in hits],
+            # The exact passages the answer was grounded on (a paid feature), so users can verify it.
+            "citations": [{"source": h["source"], "text": h["text"], "score": round(h["score"], 3)} for h in hits]
+            if show_passages else [],
+            "passages_locked": not show_passages,
+            "diagram_locked": diagram_locked,
         }

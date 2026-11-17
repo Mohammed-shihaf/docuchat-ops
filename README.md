@@ -37,12 +37,12 @@ Upload PDFs (including scanned ones), Word files, images or notes. Ask questions
   - Every chat session is bound to its owner. The collection name carries a keyed HMAC of the user ID (`s_<id>_<expiry>_<owner>`), so a session needs **both** its ID and the owner's sign-in.
   - Other users, guests and guessed IDs all get the same 404.
   - Every account table (`usage`, `payments`, `auth_sessions`) is keyed by `user_id`, and every query filters on it.
-- **Plans:**
-  - **Guest:** 15 questions and 3 files per session, 1 h sessions.
-  - **Free:** 100 questions per month.
-  - **Pro:** ₹299, 1,000 questions per month.
-  - **Team:** ₹999, 5,000 questions per month.
-  - Quotas are enforced atomically per user per month, and over-limit requests get HTTP 402 with an upgrade prompt.
+- **Sign-in is required.** Signed-out visitors can only see the landing page and pricing. Sessions, uploads and questions return 401.
+- **Plans** (enforced on the server):
+  - **Free:** 20 questions per month, 2 files per session, 1-hour sessions. Text answers with source file names only.
+  - **Pro:** ₹299, 1,000 questions per month, 20 files per session, 8 h sessions. Adds **diagrams** and **exact-passage citations**.
+  - **Team:** ₹999, 5,000 questions per month, 50 files per session, 24 h sessions.
+  - On Free, diagram blocks are stripped from answers on the server, not just discouraged in the prompt, and passages are withheld. Quotas are atomic per user per month, and over-limit requests get HTTP 402 with an upgrade prompt.
 - **Razorpay:**
   - The server creates an order tied to the user, and the customer pays on Razorpay Checkout (UPI, card or netbanking; we never see card data).
   - The HMAC signature is verified on `/billing/verify`, and a user cannot claim someone else's order.

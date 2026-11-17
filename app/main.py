@@ -127,15 +127,11 @@ class VerifyRequest(BaseModel):
     razorpay_signature: str = Field(max_length=128)
 
 
-# Guests have no account to count against, so their per-session question cap lives in memory only.
-_guest_questions: dict[str, int] = {}
+def owner_of(user: dict) -> str:
+    return auth.owner_tag(user["id"])
 
 
-def owner_of(user: dict | None) -> str:
-    return auth.owner_tag(user["id"] if user else None)
-
-
-def live_collection(rag: RagService, session_id: str, user: dict | None) -> tuple[str, int]:
+def live_collection(rag: RagService, session_id: str, user: dict) -> tuple[str, int]:
     """The ownership check: a session is only reachable with its ID *and* its owner's sign-in."""
     found = sessions.find_collection(rag.qdrant, session_id, owner_of(user))
     if not found:
@@ -143,7 +139,7 @@ def live_collection(rag: RagService, session_id: str, user: dict | None) -> tupl
     return found
 
 
-def plan_of(user: dict | None) -> dict:
+def plan_of(user: dict) -> dict:
     return PLANS[effective_plan(user)]
 
 
@@ -177,7 +173,7 @@ def metrics():
 
 
 @app.post("/sessions", status_code=201)
-def create_session(rag: Rag, user: User):
+def create_session(rag: Rag, user: SignedIn):
     """Start a private, temporary workspace bound to the caller. Everything in it is deleted when it expires."""
     session_id, expires_at = sessions.new_session(ttl_seconds=plan_of(user)["session_hours"] * 3600)
     rag.create_collection(sessions.collection_name(session_id, expires_at, owner_of(user)))
@@ -187,7 +183,7 @@ def create_session(rag: Rag, user: User):
 
 
 @app.get("/sessions/{session_id}")
-def get_session(session_id: str, rag: Rag, user: User):
+def get_session(session_id: str, rag: Rag, user: SignedIn):
     collection, expires_at = live_collection(rag, session_id, user)
     docs = rag.documents(collection)
     return {"session_id": session_id, "expires_at": expires_at,
@@ -195,10 +191,9 @@ def get_session(session_id: str, rag: Rag, user: User):
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
-def delete_session(session_id: str, rag: Rag, user: User):
+def delete_session(session_id: str, rag: Rag, user: SignedIn):
     """'Delete my data now' - removes every chunk and vector for this session immediately."""
     found = sessions.find_collection(rag.qdrant, session_id, owner_of(user))
-    _guest_questions.pop(session_id, None)
     if found:
         rag.drop(found[0])
         m.SESSIONS_DELETED.labels("user").inc()
@@ -206,7 +201,7 @@ def delete_session(session_id: str, rag: Rag, user: User):
 
 
 @app.post("/sessions/{session_id}/files")
-async def upload_file(session_id: str, request: Request, rag: Rag, store: Db, user: User,
+async def upload_file(session_id: str, request: Request, rag: Rag, store: Db, user: SignedIn,
                       name: Annotated[str, Query(min_length=1, max_length=200)]):
     """Upload one file as the raw request body. It is parsed in memory and never written to disk."""
     collection, _ = live_collection(rag, session_id, user)
@@ -232,8 +227,7 @@ async def upload_file(session_id: str, request: Request, rag: Rag, store: Db, us
         m.FILES.labels(ftype, "empty").inc()
         raise HTTPException(status_code=422, detail="no readable text found in this file")
     chunks = await asyncio.to_thread(rag.ingest, name, text, collection)
-    if user:
-        store.consume(user["id"], "files", None)  # counted for the usage page; files are limited per session
+    store.consume(user["id"], "files", None)  # counted for the usage page; files are limited per session
     m.FILES.labels(ftype, "ok").inc()
     m.CHUNKS.inc(chunks)
     log.info("file ingested type=%s chunks=%d bytes=%d", ftype, chunks, len(data))
@@ -241,20 +235,14 @@ async def upload_file(session_id: str, request: Request, rag: Rag, store: Db, us
 
 
 @app.post("/sessions/{session_id}/chat")
-def chat(session_id: str, req: ChatRequest, rag: Rag, store: Db, user: User):
+def chat(session_id: str, req: ChatRequest, rag: Rag, store: Db, user: SignedIn):
     collection, _ = live_collection(rag, session_id, user)
     plan = plan_of(user)
-    if user:
-        if not store.consume(user["id"], "questions", plan["questions_per_month"]):
-            raise HTTPException(status_code=402, detail=f"you have used all {plan['questions_per_month']} questions "
-                                                        f"in your {plan['name']} plan this month - upgrade for more")
-    else:
-        used = _guest_questions.get(session_id, 0)
-        if used >= plan["questions_per_session"]:
-            raise HTTPException(status_code=402, detail="guest limit reached - sign in free to keep asking")
-        _guest_questions[session_id] = used + 1
+    if not store.consume(user["id"], "questions", plan["questions_per_month"]):
+        raise HTTPException(status_code=402, detail=f"you have used all {plan['questions_per_month']} questions "
+                                                    f"in your {plan['name']} plan this month - upgrade for more")
     try:
-        return rag.answer(req.question, collection)
+        return rag.answer(req.question, collection, allow_diagrams=plan["diagrams"], show_passages=plan["passages"])
     except Exception as exc:  # surface upstream LLM/vector-store failures as 502, not 500
         m.LLM_ERRORS.labels(type(exc).__name__).inc()
         log.warning("chat upstream error type=%s", type(exc).__name__)
@@ -310,11 +298,10 @@ def logout(store: Db, dc_auth: Annotated[str | None, Cookie()] = None):
 @app.get("/me")
 def me(store: Db, user: User):
     """The signed-in user's own account, plan and usage - nobody else's."""
+    if not user:
+        return {"signed_in": False, "payments_enabled": billing.configured()}
     plan_id = effective_plan(user)
     plan = PLANS[plan_id]
-    if not user:
-        return {"signed_in": False, "plan": plan_id, "plan_name": plan["name"], "limits": plan,
-                "payments_enabled": billing.configured()}
     return {"signed_in": True, "email": user["email"], "plan": plan_id, "plan_name": plan["name"],
             "plan_expires_at": user["plan_expires_at"] if plan_id in ("pro", "team") else None,
             "limits": plan, "usage": store.usage(user["id"]), "payments_enabled": billing.configured()}

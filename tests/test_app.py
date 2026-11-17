@@ -1,6 +1,7 @@
 """Unit tests run with fakes: no Qdrant, model download or API key needed (fast, CI-friendly)."""
 import io
 import os
+import time
 from types import SimpleNamespace
 
 os.environ["WARMUP"] = "false"
@@ -10,7 +11,7 @@ os.environ["DATABASE_PATH"] = ":memory:"
 import pytest
 from fastapi.testclient import TestClient
 
-from app import sessions
+from app import auth, sessions
 from app.db import Store
 from app.main import app, get_rag, get_store
 from app.parsers import UnsupportedFile, extract_text
@@ -79,8 +80,20 @@ def client(rag, store, monkeypatch):
     monkeypatch.setattr(main_mod, "write_limiter", RateLimiter(10_000))  # isolate tests from each other
     app.dependency_overrides[get_rag] = lambda: rag
     app.dependency_overrides[get_store] = lambda: store
-    yield TestClient(app)
+    # Using the app requires sign-in: the default test client is a signed-in Pro user (all features on).
+    user = store.get_or_create_user("tester@example.com")
+    with store.tx() as c:
+        c.execute("UPDATE users SET plan = 'pro', plan_expires_at = ? WHERE id = ?", (int(time.time()) + 86400, user["id"]))
+    c = TestClient(app)
+    c.cookies.set(auth.COOKIE, auth.start_auth_session(store, user["id"]))
+    yield c
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def guest(client):
+    """A signed-out browser (shares the fakes installed by `client`)."""
+    return TestClient(app)
 
 
 @pytest.fixture

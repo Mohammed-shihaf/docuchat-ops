@@ -220,6 +220,16 @@
   .st-paid { color: var(--ok); } .st-failed { color: var(--error); } .st-created { color: var(--warn); }
   .toast button { margin-left: 10px; min-height: 28px; padding: 0 10px; font-size: 12px; }
 
+  .locked { margin-top: 10px; padding: 12px 14px; border-radius: 12px; display: flex; align-items: center; gap: 12px;
+    border: 1px dashed rgba(139, 92, 246, .45); background: linear-gradient(135deg, rgba(139, 92, 246, .10), rgba(34, 211, 238, .05)); font-size: 13px; }
+  .locked .lk { font-size: 18px; flex: none; }
+  .locked span:not(.lk) { flex: 1; color: var(--muted); } .locked b { color: var(--text); }
+  .locked button { min-height: 32px; padding: 0 12px; font-size: 12px; }
+  body.signed-out .drop, body.signed-out #ask, body.signed-out #wipe { opacity: .45; pointer-events: none; filter: grayscale(.4); }
+  body.signed-out .privacy { opacity: .6; }
+  .gate { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+  .gate button { min-height: 46px; padding: 0 22px; }
+
   .scrim { display: none; }
   @media (max-width: 860px) {
     .app { grid-template-columns: 1fr; padding: 10px; gap: 10px; }
@@ -495,6 +505,18 @@ import("https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs")
 const msgs = $("msgs"), q = $("q"), send = $("send"), files = $("files");
 let session = null, timerHandle = null, diagramCount = 0, ttl = 7200, me = { signed_in: false, plan: "anonymous" };
 
+function showSignedOut() {
+  msgs.classList.remove("active");
+  msgs.innerHTML = `<div class="hero" id="empty">
+    <h2>Ask your documents <span class="g">anything.</span></h2>
+    <p>Private Q&amp;A over your PDFs, Word files and scans - answers grounded in your files, and nothing is ever kept. Sign in to get started.</p>
+    <div class="gate"><button class="btn-grad" type="button" data-gate="signin">Sign in - it's free</button>
+      <button class="btn-soft" type="button" data-gate="plans">See plans</button></div>
+    <div class="hint-hint">Tip: drag the sphere to spin it</div></div>`;
+  msgs.querySelector('[data-gate="signin"]').onclick = () => openSignIn();
+  msgs.querySelector('[data-gate="plans"]').onclick = () => openPlans();
+}
+
 function showEmpty() {
   msgs.classList.remove("active");
   msgs.innerHTML = `<div class="hero" id="empty">
@@ -514,6 +536,10 @@ async function api(method, url, body, headers = {}) {
   const r = await fetch(url, { method, headers, body, credentials: "same-origin" });
   if (r.status === 204) return null;
   if (r.status === 429) { const e = new Error("Too many requests - please wait a minute and try again"); e.status = 429; throw e; }
+  if (r.status === 401 && !url.startsWith("/auth") && !url.startsWith("/billing")) {
+    me = { signed_in: false }; renderAccount(); signOutView(); openSignIn("Please sign in to continue.");
+    const e = new Error("Please sign in"); e.status = 401; throw e;
+  }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(typeof data.detail === "string" ? data.detail : "Request failed (" + r.status + ")"); e.status = r.status; throw e; }
   return data;
@@ -577,6 +603,7 @@ async function refreshDocs() {
   renderDocs(s.documents);
 }
 async function upload(list) {
+  if (!me.signed_in) return openSignIn("Sign in to upload documents.");
   files.querySelector(".empty-files")?.remove();
   let ok = 0;
   for (const f of list) {
@@ -668,6 +695,14 @@ async function renderAnswer(data) {
     data.sources.forEach(n => { const t = document.createElement("span"); t.textContent = "📄 " + n; s.appendChild(t); });
     add(s);
   }
+  const teaser = (icon, html) => {
+    const box = document.createElement("div"); box.className = "locked";
+    box.innerHTML = `<span class="lk">${icon}</span><span>${html}</span>`;
+    const b = document.createElement("button"); b.className = "btn-grad"; b.type = "button"; b.textContent = "Upgrade";
+    b.onclick = () => openPlans(); box.appendChild(b); return box;
+  };
+  if (data.diagram_locked) add(teaser("🧭", "<b>Diagrams are a Pro feature.</b> Upgrade to turn your documents into flowcharts."));
+  if (data.passages_locked && data.sources?.length) add(teaser("🔒", "<b>See the exact passages</b> behind every answer with Pro."));
   if (data.citations?.length) {
     const d = document.createElement("details");
     d.innerHTML = `<summary>Show the ${data.citations.length} passages used</summary>`;
@@ -730,12 +765,12 @@ async function loadMe() {
 }
 
 function renderAccount() {
+  document.body.classList.toggle("signed-out", !me.signed_in);
   const box = $("acct");
   if (!me.signed_in) {
-    box.innerHTML = `<div class="acct-row"><div class="avatar" style="background:rgba(255,255,255,.08)">?</div>
-      <div class="who"><b>Guest</b><small>${me.limits?.questions_per_session ?? 15} questions · ${me.limits?.files_per_session ?? 3} files per session</small></div>
-      <span class="badge">Guest</span></div>
-      <div class="acct-actions"><button class="btn-grad" id="signinBtn" type="button">Sign in free</button><button class="btn-soft" id="plansBtn" type="button">Plans</button></div>`;
+    box.innerHTML = `<div class="acct-row"><div class="avatar" style="background:rgba(255,255,255,.08)">🔒</div>
+      <div class="who"><b>Not signed in</b><small>Sign in to upload and ask questions</small></div></div>
+      <div class="acct-actions"><button class="btn-grad" id="signinBtn" type="button">Sign in</button><button class="btn-soft" id="plansBtn" type="button">Plans</button></div>`;
     $("signinBtn").onclick = openSignIn; $("plansBtn").onclick = openPlans;
     return;
   }
@@ -751,7 +786,7 @@ function renderAccount() {
       <button class="btn-soft" id="outBtn" type="button" title="Sign out">Sign out</button>
     </div>`;
   $("plansBtn").onclick = openPlans; $("billBtn").onclick = openBilling;
-  $("outBtn").onclick = async () => { await api("POST", "/auth/logout").catch(() => {}); toast("Signed out"); sessionStorage.removeItem("sid"); await loadMe(); await startSession(); };
+  $("outBtn").onclick = async () => { await api("POST", "/auth/logout").catch(() => {}); toast("Signed out"); signOutView(); await loadMe(); };
 }
 
 function openModal(html, narrow = false) {
@@ -788,16 +823,18 @@ async function openPlans() {
   const { plans, payments_enabled } = await api("GET", "/billing/plans");
   const cur = me.signed_in ? me.plan : null;
   const feat = p => [`${p.questions_per_month.toLocaleString("en-IN")} questions / month`, `${p.files_per_session} files per session`,
-    `Sessions last ${p.session_hours} h`, "Scanned PDF & image OCR", "Diagrams & citations", "Zero data retention"];
+    `Sessions last ${p.session_hours} h`, "Scanned PDF & image OCR", "Zero data retention"];
+  const locked = p => [!p.diagrams && "Diagrams & flowcharts", !p.passages && "Exact-passage citations"].filter(Boolean);
   openModal(`<h3 id="modalTitle">Choose your plan</h3>
     <p class="lead">Simple monthly pricing in INR. Pay securely with UPI, card or netbanking via Razorpay - we never see your card.</p>
     <div class="plans">${plans.map(p => `<div class="plan ${p.id === "pro" ? "hot" : ""}" data-tilt-plan>
       <span class="nm">${esc(p.name)}${p.id === "pro" ? " · Popular" : ""}</span>
       <span class="price">${rupees(p.price_paise)}<small>${p.price_paise ? " / month" : ""}</small></span>
-      <ul>${feat(p).map(f => `<li>${esc(f)}</li>`).join("")}</ul>
+      <ul>${feat(p).map(f => `<li>${esc(f)}</li>`).join("")}${p.diagrams ? "<li>Diagrams &amp; flowcharts</li><li>Exact-passage citations</li>" : ""}
+        ${locked(p).map(f => `<li style="opacity:.55;text-decoration:line-through">${esc(f)}</li>`).join("")}</ul>
       ${cur === p.id ? `<div class="cur">✓ Your current plan</div>`
         : p.price_paise ? `<button class="${p.id === "pro" ? "btn-grad" : "btn-soft"}" data-buy="${p.id}" type="button" ${payments_enabled ? "" : "disabled title='Payments are not enabled on this server yet'"}>Get ${esc(p.name)}</button>`
-        : me.signed_in ? `<div class="cur">Included</div>` : `<button class="btn-soft" data-signin type="button">Sign up free</button>`}
+        : `<button class="btn-soft" data-signin type="button">Sign up free</button>`}
     </div>`).join("")}</div>
     <p class="note">${payments_enabled ? "Plans last 30 days. Renew any time - early renewals stack." : "Payments are being set up - paid plans will open soon."}</p>`);
   document.querySelectorAll("[data-tilt-plan]").forEach(el => tilt(el, 8));
@@ -850,8 +887,15 @@ async function openBilling() {
   $("bDel").onclick = async () => {
     if (!confirm("Delete your account? Your email, plan, usage and payment records will be erased. This cannot be undone.")) return;
     await api("DELETE", "/me"); closeModal(); fx.scatter(); toast("Your account was deleted");
-    sessionStorage.removeItem("sid"); await loadMe(); await startSession();
+    signOutView(); await loadMe();
   };
+}
+
+// Signed out: no session, nothing uploaded, no timer.
+function signOutView() {
+  sessionStorage.removeItem("sid"); session = null; clearInterval(timerHandle);
+  $("timer").textContent = "--:--"; $("ringProg").style.strokeDashoffset = "0";
+  renderDocs([]); showSignedOut();
 }
 
 function upgradeToast(text) {
@@ -872,7 +916,7 @@ function upgradeToast(text) {
   // A session belongs to whoever created it, so signing in starts a fresh one owned by the account.
   if (login === "ok") { sessionStorage.removeItem("sid"); toast(`Signed in as ${me.email}`); }
   if (login === "expired") toast("That sign-in link has expired or was already used - request a new one.", "bad");
-  await resumeOrStart();
+  if (me.signed_in) await resumeOrStart(); else signOutView();
 })().catch(err => addMsg("bot err", "Could not start a session: " + err.message));
 </script>
 </body>
