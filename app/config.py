@@ -21,6 +21,10 @@ class Settings:
     cleanup_interval_seconds: int = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "60"))
     max_file_bytes: int = int(os.getenv("MAX_FILE_MB", "10")) * 1024 * 1024
     max_files_per_session: int = int(os.getenv("MAX_FILES_PER_SESSION", "20"))
+    # Abuse protection: POST requests (sessions, uploads, questions) per client per minute
+    rate_limit_per_minute: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+    # Only enable behind a trusted ingress that sets X-Forwarded-For
+    trust_proxy_headers: bool = os.getenv("TRUST_PROXY_HEADERS", "false") == "true"
 
 
 settings = Settings()

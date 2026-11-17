@@ -1,0 +1,17 @@
+# Environment values Argo CD applies on top of charts/docuchat/values.yaml.
+# CI updates image.tag automatically after a green build on main (see .github/workflows/ci.yml).
+image:
+  repository: ghcr.io/mohammed-shihaf/docuchat-ops
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+ingress:
+  enabled: false   # enable with your domain + TLS secret
+
+metrics:
+  serviceMonitor:
+    enabled: true
+  grafanaDashboard:
+    enabled: true

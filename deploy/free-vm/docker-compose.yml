@@ -1,0 +1,47 @@
+# ₹0 production deployment for one small VM (e.g. Oracle Cloud "Always Free" Ampere: 4 vCPU / 24 GB, free forever).
+#   cp .env.example .env && nano .env      # set DOMAIN, and either LLM_API_KEY (Groq free) or the Ollama lines
+#   docker compose up -d                    # add --profile ollama to run the AI model on the VM itself
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    restart: unless-stopped
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    tmpfs:                                  # zero retention: vectors live in RAM only
+      - /qdrant/storage:size=2g
+      - /qdrant/snapshots:size=64m
+    mem_limit: 2500m
+
+  api:
+    image: ghcr.io/mohammed-shihaf/docuchat-ops:latest   # multi-arch (amd64 + arm64), built free by GitHub Actions
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      TRUST_PROXY_HEADERS: "true"           # Caddy sets X-Forwarded-For
+    depends_on: [qdrant]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 2g
+
+  caddy:                                    # free automatic HTTPS (Let's Encrypt)
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env, e.g. docuchat.duckdns.org}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                    # only TLS certificates - no customer data
+    depends_on: [api]
+
+  ollama:                                   # optional: run the LLM on the VM -> no API costs, no data leaves the VM
+    image: ollama/ollama:0.12.6
+    profiles: [ollama]
+    restart: unless-stopped
+    volumes: [ollama_models:/root/.ollama]  # model weights only - no customer data
+    mem_limit: 8g
+
+volumes:
+  caddy_data:
+  ollama_models:

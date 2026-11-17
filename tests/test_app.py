@@ -205,3 +205,49 @@ def test_upload_size_limit(client, sid, monkeypatch):
 
 def test_chat_validation(client, sid):
     assert client.post(f"/sessions/{sid}/chat", json={"question": ""}).status_code == 422
+
+
+# ---- rate limiting, metrics, probes ----
+
+def test_rate_limiter_window():
+    from app.ratelimit import RateLimiter
+    rl = RateLimiter(limit=2, window_seconds=60)
+    assert rl.allow("k", now=0) and rl.allow("k", now=1)
+    assert not rl.allow("k", now=2)
+    assert rl.allow("k", now=61)          # oldest hit expired
+    assert rl.allow("other", now=2)       # keys are independent
+
+
+def test_client_key_does_not_store_raw_ip():
+    from app.ratelimit import client_key
+    assert "203.0.113.9" not in client_key("203.0.113.9")
+    assert client_key("203.0.113.9") == client_key("203.0.113.9")
+
+
+def test_api_returns_429_when_limited(client, monkeypatch):
+    import app.main
+    from app.ratelimit import RateLimiter
+    monkeypatch.setattr(app.main, "write_limiter", RateLimiter(limit=1))
+    assert client.post("/sessions").status_code == 201
+    r = client.post("/sessions")
+    assert r.status_code == 429 and r.headers["Retry-After"] == "60"
+
+
+def test_metrics_use_route_templates_not_session_ids(client, sid):
+    upload(client, sid, "a.md", b"hello")
+    client.post(f"/sessions/{sid}/chat", json={"question": "hi"})
+    body = client.get("/metrics").text
+    assert 'route="/sessions/{session_id}/chat"' in body
+    assert sid not in body and "a.md" not in body
+    assert "docuchat_llm_tokens_total" in body
+
+
+def test_readyz(client):
+    assert client.get("/readyz").json()["status"] == "ready"
+
+
+def test_image_without_ocr_is_rejected(monkeypatch):
+    import app.parsers
+    monkeypatch.setattr(app.parsers, "ocr_available", lambda: False)
+    with pytest.raises(UnsupportedFile):
+        extract_text("scan.png", b"\x89PNG")

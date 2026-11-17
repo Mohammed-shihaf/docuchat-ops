@@ -1,0 +1,30 @@
+# Argo CD Application: keeps the cluster in sync with this repo.
+#   kubectl apply -n argocd -f gitops/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: docuchat
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Mohammed-shihaf/docuchat-ops.git
+    targetRevision: main
+    path: charts/docuchat
+    helm:
+      valueFiles:
+        - ../../gitops/values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: docuchat
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true       # undo manual drift
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff: { duration: 10s, factor: 2, maxDuration: 3m }

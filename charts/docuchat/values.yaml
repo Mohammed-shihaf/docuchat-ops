@@ -1,0 +1,69 @@
+# -- API ---------------------------------------------------------------------
+image:
+  repository: ghcr.io/mohammed-shihaf/docuchat-ops
+  tag: ""                 # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+llm:
+  baseUrl: https://api.groq.com/openai/v1
+  model: openai/gpt-oss-20b
+  # Name of an existing Secret holding key LLM_API_KEY. Create it out-of-band
+  # (kubectl / External Secrets / Sealed Secrets) - never put API keys in values files.
+  existingSecret: docuchat-llm
+  secretKey: LLM_API_KEY
+
+app:
+  sessionTtlSeconds: 7200
+  maxFileMb: 10
+  maxFilesPerSession: 20
+  rateLimitPerMinute: 30
+  trustProxyHeaders: true   # behind the ingress controller
+
+resources:
+  requests: { cpu: 250m, memory: 768Mi }
+  limits:   { memory: 1536Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  minAvailable: 1
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: nginx
+  host: docuchat.local
+  tls: []                   # e.g. [{secretName: docuchat-tls, hosts: [docuchat.example.com]}]
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 11m
+
+# -- Vector store (RAM only: zero retention) -----------------------------------
+qdrant:
+  image:
+    repository: qdrant/qdrant
+    tag: v1.20.0
+  memoryStorageSize: 1Gi    # tmpfs size; data is lost on restart by design
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits:   { memory: 1536Mi }
+
+# -- Platform -------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+metrics:
+  serviceMonitor:
+    enabled: false          # set true when the Prometheus Operator CRDs are installed
+    interval: 30s
+    labels: {}
+  grafanaDashboard:
+    enabled: false          # set true with kube-prometheus-stack's Grafana dashboard sidecar

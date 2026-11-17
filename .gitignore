@@ -8,3 +8,11 @@ __pycache__/
 # Personal/private documents - never publish
 docs/*
 !docs/aks-basics.md
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+**/.kubeconfig
+*.tfvars
+.terraform.lock.hcl.bak

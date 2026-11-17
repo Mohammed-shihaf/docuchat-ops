@@ -1,0 +1,18 @@
+{
+  "document": {
+    "name": "eval-handbook.md",
+    "text": "# Northwind Cloud Handbook\n\nNorthwind runs all production workloads on Azure Kubernetes Service in the Central India region. The platform team is on call from 09:00 to 21:00 IST; outside those hours, incidents page the secondary on-call engineer.\n\nDeployments: every merge to main triggers GitHub Actions, which runs the test suite, builds a container image and pushes it to Azure Container Registry. Argo CD then syncs the new image tag to the cluster. A deployment is rolled back automatically if the error rate exceeds 2 percent within 10 minutes.\n\nSecrets are stored in Azure Key Vault and mounted with the CSI secrets driver. Developers must never put secrets in Git.\n\nBackups: the PostgreSQL database is backed up every 6 hours and backups are retained for 35 days.\n\nCost policy: development clusters are scaled to zero nodes at 22:00 IST every night to save money."
+  },
+  "cases": [
+    {"question": "Which cloud region does Northwind use for production?", "expect_any": ["central india"]},
+    {"question": "What happens if the error rate goes above 2 percent after a deployment?", "expect_any": ["roll", "rolled back", "rollback"]},
+    {"question": "Where are secrets stored?", "expect_any": ["key vault"]},
+    {"question": "How often is the database backed up?", "expect_any": ["6 hours", "six hours", "every 6"]},
+    {"question": "How long are backups kept?", "expect_any": ["35 days", "35"]},
+    {"question": "What tool syncs the new image to the cluster?", "expect_any": ["argo"]},
+    {"question": "When are development clusters scaled down?", "expect_any": ["22:00", "10 pm", "10pm"]},
+    {"question": "What are the on-call hours of the platform team?", "expect_any": ["09:00", "9:00", "9 am"]},
+    {"question": "Who is the CEO of Northwind?", "expect_dont_know": true},
+    {"question": "What is the office address of Northwind?", "expect_dont_know": true}
+  ]
+}

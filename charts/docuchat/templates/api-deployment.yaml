@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "docuchat.fullname" . }}-api
+  labels:
+    {{- include "docuchat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "docuchat.apiSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "docuchat.apiSelector" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: QDRANT_URL
+              value: "http://{{ include "docuchat.fullname" . }}-qdrant:6333"
+            - name: LLM_BASE_URL
+              value: {{ .Values.llm.baseUrl | quote }}
+            - name: LLM_MODEL
+              value: {{ .Values.llm.model | quote }}
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.llm.existingSecret }}
+                  key: {{ .Values.llm.secretKey }}
+            - name: SESSION_TTL_SECONDS
+              value: {{ .Values.app.sessionTtlSeconds | quote }}
+            - name: MAX_FILE_MB
+              value: {{ .Values.app.maxFileMb | quote }}
+            - name: MAX_FILES_PER_SESSION
+              value: {{ .Values.app.maxFilesPerSession | quote }}
+            - name: RATE_LIMIT_PER_MINUTE
+              value: {{ .Values.app.rateLimitPerMinute | quote }}
+            - name: TRUST_PROXY_HEADERS
+              value: {{ .Values.app.trustProxyHeaders | quote }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "docuchat.restrictedSecurity" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory          # OCR scratch space stays in RAM
+            sizeLimit: 256Mi

@@ -7,6 +7,8 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 EMBED_CACHE_DIR=/app/models HF_HUB_OFFLINE=0
 WORKDIR /app
+# Tesseract for OCR of scanned PDFs and images.
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /install /usr/local
 # Bake the embedding model into the image: startup never depends on downloading from the internet.
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/app/models')"

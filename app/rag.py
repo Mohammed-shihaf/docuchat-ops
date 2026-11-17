@@ -1,6 +1,7 @@
 """Retrieval-Augmented Generation: chunk -> embed -> store -> retrieve -> prompt -> answer."""
 import uuid
 
+from . import metrics as m
 from .config import settings
 
 SYSTEM_PROMPT = (
@@ -105,12 +106,20 @@ class RagService:
     def answer(self, question: str, collection: str = settings.collection) -> dict:
         hits = self.retrieve(question, collection)
         if not hits:
+            m.ANSWERS.labels("no_docs").inc()
             return {"answer": "I don't know - no documents have been added yet.", "sources": [], "citations": []}
-        resp = self.llm.chat.completions.create(
-            model=settings.llm_model, messages=build_messages(question, hits), temperature=0.1
-        )
+        m.RETRIEVAL_SCORE.observe(max(h["score"] for h in hits))
+        with m.LLM_LATENCY.time():
+            resp = self.llm.chat.completions.create(
+                model=settings.llm_model, messages=build_messages(question, hits), temperature=0.1
+            )
+        if usage := getattr(resp, "usage", None):
+            m.LLM_TOKENS.labels("prompt").inc(usage.prompt_tokens or 0)
+            m.LLM_TOKENS.labels("completion").inc(usage.completion_tokens or 0)
+        answer = resp.choices[0].message.content or ""
+        m.ANSWERS.labels("dont_know" if answer.lower().startswith("i don't know") else "yes").inc()
         return {
-            "answer": resp.choices[0].message.content,
+            "answer": answer,
             "sources": sorted({h["source"] for h in hits}),
             # The exact passages the answer was grounded on, so users can verify it.
             "citations": [{"source": h["source"], "text": h["text"], "score": round(h["score"], 3)} for h in hits],

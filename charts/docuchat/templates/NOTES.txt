@@ -1,0 +1,8 @@
+DocuChat is deployed (zero retention: Qdrant runs in RAM, sessions auto-expire).
+
+1. Make sure the LLM secret exists:
+   kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.llm.existingSecret }} --from-literal={{ .Values.llm.secretKey }}=<your key>
+
+2. Open the UI:
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "docuchat.fullname" . }}-api 8080:{{ .Values.service.port }}
+   then browse http://localhost:8080

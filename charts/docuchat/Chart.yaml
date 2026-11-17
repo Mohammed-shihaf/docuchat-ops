@@ -1,0 +1,7 @@
+apiVersion: v2
+name: docuchat
+description: Zero-retention RAG document chat (API + in-memory Qdrant)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords: [rag, llm, qdrant, privacy]

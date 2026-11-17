@@ -89,8 +89,8 @@
     </div>
     <label class="drop" id="drop">
       <strong>Add documents</strong>
-      <small>PDF, Word (.docx), .md, .txt — up to 10 MB each</small>
-      <input type="file" id="file" accept=".pdf,.docx,.md,.txt" multiple hidden>
+      <small>PDF (incl. scanned), Word, images, .md, .txt — up to 10 MB each</small>
+      <input type="file" id="file" accept=".pdf,.docx,.md,.txt,.png,.jpg,.jpeg" multiple hidden>
     </label>
     <div>
       <p class="sub" id="docsTitle">Documents in this session</p>
@@ -136,6 +136,7 @@ msgs.addEventListener("click", e => { const b = e.target.closest("[data-q]"); if
 async function api(method, url, body, headers = {}) {
   const r = await fetch(url, { method, headers, body });
   if (r.status === 204) return null;
+  if (r.status === 429) { const e = new Error("Too many requests - please wait a minute and try again"); e.status = 429; throw e; }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(typeof data.detail === "string" ? data.detail : "Request failed (" + r.status + ")"); e.status = r.status; throw e; }
   return data;

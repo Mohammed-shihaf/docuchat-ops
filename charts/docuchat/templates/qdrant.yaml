@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "docuchat.fullname" . }}-qdrant
+  labels:
+    {{- include "docuchat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: qdrant
+spec:
+  replicas: 1                 # single in-memory instance; sessions are ephemeral by design
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "docuchat.qdrantSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "docuchat.qdrantSelector" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: qdrant
+          image: "{{ .Values.qdrant.image.repository }}:{{ .Values.qdrant.image.tag }}"
+          ports:
+            - name: http
+              containerPort: 6333
+          env:
+            - name: QDRANT__TELEMETRY_DISABLED
+              value: "true"
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /livez, port: http }
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.qdrant.resources | nindent 12 }}
+          securityContext:
+            {{- include "docuchat.restrictedSecurity" . | nindent 12 }}
+          volumeMounts:
+            - { name: storage, mountPath: /qdrant/storage }
+            - { name: snapshots, mountPath: /qdrant/snapshots }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        # Zero retention: RAM-backed volumes. Nothing is written to node disks.
+        - name: storage
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.qdrant.memoryStorageSize }}
+        - name: snapshots
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "docuchat.fullname" . }}-qdrant
+  labels:
+    {{- include "docuchat.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "docuchat.qdrantSelector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 6333
+      targetPort: http

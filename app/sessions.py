@@ -34,6 +34,12 @@ def find_collection(qdrant, session_id: str, now: float | None = None) -> tuple[
     return None
 
 
+def count_live(qdrant, now: float | None = None) -> int:
+    now = time.time() if now is None else now
+    return sum(1 for c in qdrant.get_collections().collections
+               if (m := NAME_RE.match(c.name)) and int(m.group(2)) > now)
+
+
 def purge_expired(qdrant, now: float | None = None) -> int:
     """Delete every session collection past its expiry. Returns how many were deleted."""
     now = time.time() if now is None else now
