@@ -2,7 +2,7 @@
 # CI updates image.tag automatically after a green build on main (see .github/workflows/ci.yml).
 image:
   repository: ghcr.io/mohammed-shihaf/docuchat-ops
-  tag: "sha-7101b87"
+  tag: "sha-9a33bcd"
   pullPolicy: IfNotPresent
 
 replicaCount: 1  # SQLite accounts DB (see chart values)
