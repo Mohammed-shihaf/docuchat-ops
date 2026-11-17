@@ -4,132 +4,458 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DocuChat Ops</title>
+<meta name="description" content="Private, zero-retention Q&A over your documents.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap">
 <style>
   :root {
-    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #667085;
-    --border: #e3e6eb; --accent: #0b5394; --accent-text: #ffffff;
-    --user: #0b5394; --bot: #eef1f5; --error: #b42318; --ok: #067647; --warn: #b54708;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #12151b; --panel: #1a1f27; --text: #e6e9ef; --muted: #98a2b3;
-      --border: #2b323d; --accent: #4f8fd6; --accent-text: #0b1020;
-      --user: #2f6db3; --bot: #232a35; --error: #f97066; --ok: #47cd89; --warn: #fdb022;
-    }
+    --bg: #070a13; --bg2: #0b1020;
+    --glass: rgba(18, 24, 42, .58); --glass-strong: rgba(18, 24, 42, .82);
+    --line: rgba(148, 163, 255, .16); --line-strong: rgba(148, 163, 255, .32);
+    --text: #e8ecff; --muted: #9aa3c7; --dim: #6b7399;
+    --a1: #8b5cf6; --a2: #22d3ee; --a3: #f472b6;
+    --grad: linear-gradient(135deg, var(--a1), var(--a2));
+    --ok: #34d399; --warn: #fbbf24; --error: #fb7185;
+    --radius: 18px; --shadow: 0 20px 60px rgba(0, 0, 0, .45);
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
-  .app { display: grid; grid-template-columns: 310px 1fr; height: 100dvh; }
-  aside { background: var(--panel); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
-  h1 { font-size: 18px; margin: 0; }
-  .sub { color: var(--muted); font-size: 13px; margin: 2px 0 0; }
-  .privacy { border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
-  .privacy b { color: var(--ok); }
-  .timer { font-variant-numeric: tabular-nums; font-weight: 600; }
-  .timer.low { color: var(--warn); }
-  .drop { border: 2px dashed var(--border); border-radius: 12px; padding: 20px 14px; text-align: center; cursor: pointer; transition: .15s; }
-  .drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-  .drop strong { display: block; margin-bottom: 4px; }
-  .drop small { color: var(--muted); }
-  .files { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-  .files li { font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; display: flex; justify-content: space-between; gap: 8px; }
-  .files li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .files li span:last-child { color: var(--muted); white-space: nowrap; }
-  .files li.err span:last-child { color: var(--error); white-space: normal; text-align: right; }
-  main { display: flex; flex-direction: column; min-width: 0; }
-  .topbar { display: none; padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--border); align-items: center; justify-content: space-between; }
-  .msgs { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
-  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 440px; }
-  .msg { max-width: min(760px, 88%); padding: 12px 14px; border-radius: 14px; word-wrap: break-word; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font: 15px/1.55 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--text); background: radial-gradient(1200px 800px at 70% 20%, #151b3a 0%, var(--bg) 60%) fixed, var(--bg);
+    overflow: hidden;
+  }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; display: block; cursor: grab; }
+  #scene.dragging { cursor: grabbing; }
+  .aurora { position: fixed; inset: -20%; z-index: 0; pointer-events: none; filter: blur(80px); opacity: .55;
+    background: radial-gradient(40% 35% at 20% 30%, rgba(139, 92, 246, .35), transparent 70%),
+                radial-gradient(35% 30% at 80% 70%, rgba(34, 211, 238, .25), transparent 70%),
+                radial-gradient(30% 25% at 60% 10%, rgba(244, 114, 182, .18), transparent 70%);
+    animation: drift 22s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform: translate3d(4%, -3%, 0) rotate(8deg) scale(1.08); } }
+
+  .app { position: relative; z-index: 1; display: grid; grid-template-columns: 330px 1fr; height: 100dvh; gap: 18px; padding: 18px; pointer-events: none; }
+  .app > * { pointer-events: auto; }
+  .glass { background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius);
+    backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%); box-shadow: var(--shadow); }
+
+  /* ---------- sidebar ---------- */
+  aside { padding: 22px; display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 42px; height: 42px; border-radius: 12px; background: var(--grad); display: grid; place-items: center;
+    box-shadow: 0 8px 30px rgba(139, 92, 246, .45); animation: float 6s ease-in-out infinite; }
+  .logo svg { width: 24px; height: 24px; }
+  @keyframes float { 50% { transform: translateY(-4px) rotate(-4deg); } }
+  h1 { font: 700 20px/1.1 "Space Grotesk", Inter, sans-serif; margin: 0; letter-spacing: -.02em; }
+  h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--muted); font-size: 13px; margin: 3px 0 0; }
+
+  .privacy { padding: 16px; display: grid; grid-template-columns: 74px 1fr; gap: 14px; align-items: center; border-radius: 16px;
+    background: linear-gradient(160deg, rgba(52, 211, 153, .10), rgba(34, 211, 238, .04)); border: 1px solid rgba(52, 211, 153, .22); }
+  .ring { position: relative; width: 74px; height: 74px; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .track { stroke: rgba(255, 255, 255, .08); }
+  .ring .prog { stroke: url(#ringGrad); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+  .ring.low .prog { stroke: var(--warn); }
+  .ring .t { position: absolute; inset: 0; display: grid; place-items: center; font: 600 11px/1 "Space Grotesk", monospace; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .privacy p { margin: 0; font-size: 13px; color: var(--muted); }
+  .privacy p b { color: var(--ok); font-weight: 600; }
+  .pulse-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; box-shadow: 0 0 0 0 rgba(52, 211, 153, .7); animation: ping 2s infinite; }
+  @keyframes ping { 70% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); } 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); } }
+
+  .drop { position: relative; border-radius: 16px; padding: 26px 16px; text-align: center; cursor: pointer; isolation: isolate;
+    transition: transform .25s, box-shadow .25s; transform-style: preserve-3d; }
+  .drop::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; z-index: -1;
+    background: conic-gradient(from var(--ang, 0deg), var(--a1), var(--a2), var(--a3), var(--a1));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+    animation: spin 6s linear infinite; opacity: .55; transition: opacity .25s; }
+  .drop::after { content: ""; position: absolute; inset: 1.5px; border-radius: 15px; background: rgba(10, 14, 28, .55); z-index: -2; }
+  .drop:hover::before, .drop.over::before { opacity: 1; animation-duration: 2s; }
+  .drop.over { transform: scale(1.03); box-shadow: 0 0 40px rgba(34, 211, 238, .25); }
+  @property --ang { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+  @keyframes spin { to { --ang: 360deg; } }
+  .drop .ic { width: 46px; height: 46px; margin: 0 auto 10px; border-radius: 14px; display: grid; place-items: center;
+    background: rgba(139, 92, 246, .15); border: 1px solid var(--line-strong); transition: transform .3s; }
+  .drop:hover .ic { transform: translateY(-4px) scale(1.06); }
+  .drop strong { display: block; font-weight: 600; }
+  .drop small { color: var(--muted); font-size: 12px; }
+
+  .section-title { display: flex; justify-content: space-between; align-items: center; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 8px; }
+  .files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .files li { font-size: 13px; padding: 10px 12px; border-radius: 12px; display: flex; align-items: center; gap: 10px;
+    background: rgba(255, 255, 255, .03); border: 1px solid var(--line); animation: slideIn .45s cubic-bezier(.2, .8, .2, 1) both; }
+  .files li .fi { flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font: 700 9px/1 "Space Grotesk"; letter-spacing: .03em;
+    background: rgba(34, 211, 238, .12); color: var(--a2); border: 1px solid rgba(34, 211, 238, .25); }
+  .files li .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .files li .st { color: var(--muted); white-space: nowrap; font-size: 12px; }
+  .files li.busy .st { color: var(--a2); }
+  .files li.busy .fi { animation: breathe 1s ease-in-out infinite; }
+  .files li.err { border-color: rgba(251, 113, 133, .35); }
+  .files li.err .st { color: var(--error); white-space: normal; text-align: right; }
+  .files li.err .fi { background: rgba(251, 113, 133, .12); color: var(--error); border-color: rgba(251, 113, 133, .3); }
+  @keyframes breathe { 50% { transform: scale(.9); opacity: .6; } }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-14px) scale(.98); } }
+  .empty-files { color: var(--dim); font-size: 13px; padding: 10px 2px; }
+
+  .danger { margin-top: auto; background: transparent; color: var(--error); border: 1px solid rgba(251, 113, 133, .3); min-height: 40px; font-size: 13px; }
+  .danger:hover { background: rgba(251, 113, 133, .1); }
+
+  /* ---------- chat ---------- */
+  main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; background: transparent; border: 0; box-shadow: none; backdrop-filter: none; pointer-events: none; }
+  main > * { pointer-events: auto; }
+  .topbar { display: none; padding: 12px 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .msgs { flex: 1; overflow-y: auto; padding: 8px 10px 20px; display: flex; flex-direction: column; gap: 16px; scroll-behavior: smooth; pointer-events: none; }
+  .msgs > * { pointer-events: auto; }
+  .msgs.active { pointer-events: auto; } /* scrollable once there is a conversation; drag-through while empty */
+  .msgs::-webkit-scrollbar, aside::-webkit-scrollbar { width: 8px; }
+  .msgs::-webkit-scrollbar-thumb, aside::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+
+  .hero { margin: auto; text-align: center; max-width: 560px; padding: 20px; pointer-events: none; text-shadow: 0 2px 18px rgba(7, 10, 19, .9); }
+  .hero > * { pointer-events: auto; }
+  .hero h2 { font: 700 clamp(28px, 4.2vw, 46px)/1.05 "Space Grotesk", Inter, sans-serif; letter-spacing: -.03em; margin: 0 0 12px; }
+  .hero h2 .g { background: linear-gradient(120deg, var(--a1), var(--a2), var(--a3), var(--a1)); background-size: 300% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 8s linear infinite; }
+  @keyframes shine { to { background-position: 300% 0; } }
+  .hero p { color: var(--muted); margin: 0 auto 22px; max-width: 440px; }
+  .hint-hint { font-size: 12px; color: var(--dim); margin-top: 18px; }
+  .hints { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; perspective: 900px; }
+  .card { text-align: left; padding: 16px; border-radius: 16px; cursor: pointer; transform-style: preserve-3d; transition: transform .15s ease-out, border-color .3s, box-shadow .3s;
+    background: var(--glass); border: 1px solid var(--line); color: var(--text); font: inherit; min-height: 0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .card:hover { border-color: var(--line-strong); box-shadow: 0 18px 40px rgba(139, 92, 246, .22); }
+  .card .e { font-size: 20px; display: block; margin-bottom: 8px; transform: translateZ(30px); }
+  .card b { display: block; font-weight: 600; font-size: 14px; transform: translateZ(20px); }
+  .card small { color: var(--muted); font-size: 12px; display: block; transform: translateZ(12px); }
+
+  .msg { max-width: min(780px, 88%); padding: 14px 16px; border-radius: 18px; word-wrap: break-word; animation: pop .5s cubic-bezier(.2, .9, .25, 1.2) both; }
+  @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.96); filter: blur(4px); } }
   .msg p { margin: 0 0 8px; white-space: pre-wrap; } .msg p:last-child { margin: 0; }
-  .msg.user { align-self: flex-end; background: var(--user); color: #fff; border-bottom-right-radius: 4px; white-space: pre-wrap; }
-  .msg.bot { align-self: flex-start; background: var(--bot); border-bottom-left-radius: 4px; }
-  .msg.err { color: var(--error); }
-  .msg pre { overflow-x: auto; background: var(--panel); padding: 10px; border-radius: 8px; font-size: 13px; }
-  .diagram { background: #fff; border-radius: 10px; padding: 12px; margin: 8px 0; overflow-x: auto; }
+  .msg code { background: rgba(255, 255, 255, .08); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+  .msg.user { align-self: flex-end; background: var(--grad); color: #fff; border-bottom-right-radius: 6px; white-space: pre-wrap; box-shadow: 0 10px 30px rgba(139, 92, 246, .3); }
+  .msg.bot { align-self: flex-start; background: var(--glass-strong); border: 1px solid var(--line); border-bottom-left-radius: 6px; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+  .msg.bot .blk { animation: rise .6s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 90ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); filter: blur(3px); } }
+  .msg.err { color: var(--error); border-color: rgba(251, 113, 133, .35); }
+  .msg pre { overflow-x: auto; background: rgba(0, 0, 0, .35); padding: 12px; border-radius: 10px; font-size: 13px; border: 1px solid var(--line); }
+  .typing { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--a2); animation: dot 1.2s infinite ease-in-out; }
+  .typing i:nth-child(2) { animation-delay: .15s; background: var(--a1); } .typing i:nth-child(3) { animation-delay: .3s; background: var(--a3); }
+  @keyframes dot { 0%, 80%, 100% { transform: translateY(0); opacity: .4; } 40% { transform: translateY(-6px); opacity: 1; } }
+  .diagram { background: #fff; border-radius: 12px; padding: 14px; margin: 10px 0; overflow-x: auto; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); }
   .diagram svg { max-width: 100%; height: auto; }
-  .src { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
-  .src span { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
-  details { margin-top: 8px; font-size: 13px; }
-  summary { cursor: pointer; color: var(--accent); }
-  .cite { border-left: 3px solid var(--accent); padding: 6px 10px; margin: 8px 0 0; background: var(--panel); border-radius: 0 8px 8px 0; color: var(--muted); }
+  .src { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .src span { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(34, 211, 238, .3); background: rgba(34, 211, 238, .08); color: var(--a2); }
+  details { margin-top: 10px; font-size: 13px; }
+  summary { cursor: pointer; color: var(--a2); list-style: none; display: inline-flex; gap: 6px; align-items: center; }
+  summary::before { content: "▸"; transition: transform .2s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  .cite { border-left: 3px solid var(--a1); padding: 8px 12px; margin: 8px 0 0; background: rgba(139, 92, 246, .07); border-radius: 0 10px 10px 0; color: var(--muted); animation: rise .4s both; }
   .cite b { color: var(--text); font-weight: 600; }
-  .typing { color: var(--muted); font-style: italic; }
-  form { display: flex; gap: 10px; padding: 16px 24px 20px; border-top: 1px solid var(--border); background: var(--panel); }
-  textarea { flex: 1; resize: none; min-height: 46px; max-height: 160px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; font: inherit; background: var(--bg); color: var(--text); }
-  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  button { border: 0; border-radius: 12px; padding: 0 18px; min-height: 46px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+  .bar { height: 4px; border-radius: 4px; background: rgba(255, 255, 255, .08); margin: 6px 0; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--grad); width: 0; transition: width 1s cubic-bezier(.2, .8, .2, 1); }
+
+  form { display: flex; gap: 10px; padding: 10px; margin: 0 10px 4px; align-items: flex-end; }
+  textarea { flex: 1; resize: none; min-height: 48px; max-height: 160px; padding: 13px 14px; border: 1px solid transparent; border-radius: 14px; font: inherit;
+    background: rgba(0, 0, 0, .25); color: var(--text); transition: border-color .2s, box-shadow .2s; }
+  textarea::placeholder { color: var(--dim); }
+  textarea:focus { outline: none; border-color: rgba(139, 92, 246, .5); box-shadow: 0 0 0 4px rgba(139, 92, 246, .15); }
+  button { border: 0; border-radius: 14px; padding: 0 18px; min-height: 48px; font: inherit; font-weight: 600; cursor: pointer; color: var(--text); background: rgba(255, 255, 255, .06); transition: transform .15s, box-shadow .2s, background .2s; }
+  button:active { transform: scale(.96); }
   button:disabled { opacity: .5; cursor: not-allowed; }
-  .ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); min-height: 36px; padding: 0 12px; }
-  .danger { background: transparent; color: var(--error); border: 1px solid var(--border); min-height: 36px; font-size: 13px; }
-  .hints { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
-  .hints button { min-height: 32px; font-size: 13px; font-weight: 500; }
-  @media (max-width: 760px) {
-    .app { grid-template-columns: 1fr; }
-    aside { position: fixed; inset: 0 15% 0 0; z-index: 10; transform: translateX(-105%); transition: transform .2s; box-shadow: 0 0 40px rgba(0,0,0,.25); }
+  .send { position: relative; overflow: hidden; background: var(--grad); color: #fff; width: 52px; padding: 0; display: grid; place-items: center; box-shadow: 0 8px 26px rgba(139, 92, 246, .45); }
+  .send:hover:not(:disabled) { box-shadow: 0 10px 34px rgba(34, 211, 238, .45); }
+  .send svg { width: 22px; height: 22px; transition: transform .3s; }
+  .send:hover:not(:disabled) svg { transform: translateX(2px) rotate(-10deg); }
+  .ripple { position: absolute; border-radius: 50%; background: rgba(255, 255, 255, .5); transform: scale(0); animation: rip .6s ease-out forwards; pointer-events: none; }
+  @keyframes rip { to { transform: scale(4); opacity: 0; } }
+  .ghost { background: transparent; color: var(--a2); border: 1px solid var(--line); min-height: 38px; padding: 0 14px; }
+
+  .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; flex-direction: column; gap: 10px; }
+  .toast { padding: 12px 16px; border-radius: 14px; font-size: 13px; max-width: 320px; animation: toastIn .45s cubic-bezier(.2, .9, .25, 1.2) both; }
+  .toast.out { animation: toastOut .35s ease-in forwards; }
+  .toast.ok { border-color: rgba(52, 211, 153, .4); } .toast.bad { border-color: rgba(251, 113, 133, .45); }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(16px) scale(.95); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateX(30px); } }
+
+  .scrim { display: none; }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; padding: 10px; gap: 10px; }
+    aside { position: fixed; inset: 10px 18% 10px 10px; z-index: 20; transform: translateX(-115%); transition: transform .35s cubic-bezier(.2, .8, .2, 1); }
     aside.open { transform: none; }
+    .scrim { position: fixed; inset: 0; z-index: 15; background: rgba(0, 0, 0, .5); }
+    aside.open + .scrim { display: block; }
     .topbar { display: flex; }
-    .msgs { padding: 16px; }
-    form { padding: 12px 16px 16px; }
+    .hints { grid-template-columns: 1fr; gap: 8px; }
+    .card { display: grid; grid-template-columns: 30px 1fr; column-gap: 10px; padding: 12px 14px; }
+    .card .e { grid-row: span 2; margin: 0; align-self: center; }
+    .hero p { font-size: 14px; }
     .msg { max-width: 94%; }
+    form { margin: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
   }
 </style>
 </head>
 <body>
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="aurora" aria-hidden="true"></div>
+<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+
 <div class="app">
-  <aside id="side">
-    <div>
-      <h1>DocuChat Ops</h1>
-      <p class="sub">Private Q&amp;A over your documents.</p>
+  <aside id="side" class="glass">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6M9 17h4"/></svg>
+      </div>
+      <div><h1>DocuChat <span>Ops</span></h1><p class="sub">Private Q&amp;A over your documents</p></div>
     </div>
-    <div class="privacy">
-      <div><b>●</b> Nothing is stored permanently. Files are read in memory and never saved.</div>
-      <div>This session's data is deleted in <span class="timer" id="timer">--:--:--</span></div>
-      <button class="danger" id="wipe" type="button">Delete my data now</button>
+
+    <div class="privacy" data-tilt>
+      <div class="ring" id="ring">
+        <svg width="74" height="74" viewBox="0 0 74 74"><circle class="track" cx="37" cy="37" r="31" fill="none" stroke-width="6"/><circle class="prog" id="ringProg" cx="37" cy="37" r="31" fill="none" stroke-width="6" stroke-dasharray="194.8" stroke-dashoffset="0"/></svg>
+        <span class="t" id="timer">--:--</span>
+      </div>
+      <p><span class="pulse-dot"></span><b>Zero retention.</b> Files are read in memory and never saved. Everything here self-destructs when the ring runs out.</p>
     </div>
-    <label class="drop" id="drop">
-      <strong>Add documents</strong>
-      <small>PDF (incl. scanned), Word, images, .md, .txt — up to 10 MB each</small>
+
+    <label class="drop" id="drop" data-tilt>
+      <div class="ic" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/></svg></div>
+      <strong>Drop documents here</strong>
+      <small>PDF (incl. scanned) · Word · images · .md · .txt — 10 MB each</small>
       <input type="file" id="file" accept=".pdf,.docx,.md,.txt,.png,.jpg,.jpeg" multiple hidden>
     </label>
+
     <div>
-      <p class="sub" id="docsTitle">Documents in this session</p>
+      <p class="section-title"><span id="docsTitle">Documents</span></p>
       <ul class="files" id="files"></ul>
     </div>
+
+    <button class="danger" id="wipe" type="button">Delete my data now</button>
   </aside>
+  <div class="scrim" id="scrim"></div>
 
   <main>
-    <div class="topbar">
-      <strong>DocuChat Ops</strong>
+    <div class="topbar glass">
+      <h1>DocuChat <span>Ops</span></h1>
       <button class="ghost" id="toggle" type="button">Documents</button>
     </div>
     <div class="msgs" id="msgs"></div>
-    <form id="ask">
-      <textarea id="q" rows="1" placeholder="Ask a question…" aria-label="Ask a question (Enter to send, Shift+Enter for new line)" required></textarea>
-      <button id="send">Send</button>
+    <form id="ask" class="glass">
+      <textarea id="q" rows="1" placeholder="Ask your documents…" aria-label="Ask a question (Enter to send, Shift+Enter for new line)" required></textarea>
+      <button id="send" class="send" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+      </button>
     </form>
   </main>
 </div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script type="module">
-let mermaid = null;
-try {
-  mermaid = (await import("https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs")).default;
-  mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" });
-} catch { /* diagrams fall back to showing their source */ }
-
 const $ = id => document.getElementById(id);
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* =====================================================================
+   3D knowledge sphere (Three.js). Purely decorative: the app works if it fails to load.
+   ===================================================================== */
+const fx = { energy: 0, target: 0, burst() {}, scatter() {}, pulse() {} };
+(async function initScene() {
+  let THREE;
+  try { THREE = await import("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"); }
+  catch { return; }
+  const canvas = $("scene");
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "low-power" }); }
+  catch { return; }
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
+  camera.position.set(0, 0, 7);
+  const world = new THREE.Group(); scene.add(world);
+  const sphere = new THREE.Group(); world.add(sphere);
+
+  // Soft round sprite for points
+  const dot = (() => { const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(.35, "rgba(255,255,255,.6)"); r.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+
+  const cA = new THREE.Color("#8b5cf6"), cB = new THREE.Color("#22d3ee"), cC = new THREE.Color("#f472b6");
+  // Fibonacci sphere of "knowledge" nodes
+  const N = innerWidth < 760 ? 520 : 900, R = 2.2;
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), base = [];
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i / (N - 1)) * 2, rad = Math.sqrt(1 - y * y), th = Math.PI * (3 - Math.sqrt(5)) * i;
+    const j = R * (1 + (Math.random() - .5) * .06);
+    const v = new THREE.Vector3(Math.cos(th) * rad * j, y * j, Math.sin(th) * rad * j);
+    base.push(v); pos.set([v.x, v.y, v.z], i * 3);
+    const c = cA.clone().lerp(cB, (y + 1) / 2).lerp(cC, Math.random() < .08 ? .7 : 0); col.set([c.r, c.g, c.b], i * 3);
+  }
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  pGeo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const pMat = new THREE.PointsMaterial({ size: .09, map: dot, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  sphere.add(new THREE.Points(pGeo, pMat));
+
+  // Synapses: connect each of a subset of nodes to its nearest neighbours
+  const linePos = [], step = Math.max(1, Math.floor(N / 260));
+  for (let i = 0; i < N; i += step) {
+    const near = base.map((v, k) => [k, v.distanceToSquared(base[i])]).sort((a, b) => a[1] - b[1]).slice(1, 3);
+    near.forEach(([k]) => linePos.push(base[i].x, base[i].y, base[i].z, base[k].x, base[k].y, base[k].z));
+  }
+  const lGeo = new THREE.BufferGeometry(); lGeo.setAttribute("position", new THREE.Float32BufferAttribute(linePos, 3));
+  const lMat = new THREE.LineBasicMaterial({ color: 0x8ea2ff, transparent: true, opacity: .14, blending: THREE.AdditiveBlending, depthWrite: false });
+  sphere.add(new THREE.LineSegments(lGeo, lMat));
+
+  // Glowing wireframe core
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(.95, 1),
+    new THREE.MeshBasicMaterial({ color: 0x8b5cf6, wireframe: true, transparent: true, opacity: .35, blending: THREE.AdditiveBlending }));
+  world.add(core);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0x7c6cff, transparent: true, opacity: .45, blending: THREE.AdditiveBlending, depthWrite: false }));
+  halo.scale.set(4.2, 4.2, 1); world.add(halo);
+
+  // Orbit rings
+  const rings = [];
+  [[2.9, .5, 0x22d3ee], [3.3, -.35, 0xf472b6]].forEach(([r, tilt, c]) => {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, .006, 6, 160), new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: .35 }));
+    ring.rotation.x = Math.PI / 2 + tilt; world.add(ring); rings.push(ring);
+  });
+
+  // Distant starfield
+  const S = 1400, sPos = new Float32Array(S * 3);
+  for (let i = 0; i < S; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(18 + Math.random() * 30); sPos.set([v.x, v.y, v.z], i * 3); }
+  const sGeo = new THREE.BufferGeometry(); sGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3));
+  const stars = new THREE.Points(sGeo, new THREE.PointsMaterial({ size: .12, map: dot, color: 0xaab4ff, transparent: true, opacity: .7, depthWrite: false }));
+  scene.add(stars);
+
+  // Flying "document" particles for uploads
+  const flyers = [];
+  const flyerGeo = new THREE.OctahedronGeometry(.07, 0);
+  fx.burst = (n = 14) => {
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(flyerGeo, new THREE.MeshBasicMaterial({ color: [cA, cB, cC][i % 3], transparent: true }));
+      const from = new THREE.Vector3(-6 - Math.random() * 3, (Math.random() - .5) * 6, (Math.random() - .5) * 4);
+      const to = base[(Math.random() * N) | 0].clone();
+      m.position.copy(from); world.add(m);
+      flyers.push({ m, from, to, t: -i * .05, spin: new THREE.Vector3(Math.random(), Math.random(), Math.random()) });
+    }
+    fx.target = Math.max(fx.target, .6); setTimeout(() => fx.target = 0, 1600);
+  };
+  let scatter = 0;
+  fx.scatter = () => { scatter = 1; fx.target = 1; setTimeout(() => fx.target = 0, 1200); };
+  fx.pulse = on => { fx.target = on ? 1 : 0; };
+
+  // Interaction: drag to rotate (with inertia), mouse parallax
+  let drag = null, velX = 0, velY = 0, mx = 0, my = 0;
+  const interactive = el => el.closest("button,textarea,input,label,a,summary,details,aside,form,.msg,.card,.topbar,.toast");
+  addEventListener("pointerdown", e => { if (interactive(e.target)) return; drag = { x: e.clientX, y: e.clientY }; canvas.classList.add("dragging"); });
+  addEventListener("pointermove", e => {
+    mx = (e.clientX / innerWidth - .5); my = (e.clientY / innerHeight - .5);
+    if (!drag) return;
+    velY = (e.clientX - drag.x) * .005; velX = (e.clientY - drag.y) * .005;
+    drag = { x: e.clientX, y: e.clientY };
+  });
+  addEventListener("pointerup", () => { drag = null; canvas.classList.remove("dragging"); });
+
+  function resize() {
+    const w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h;
+    // On wide screens push the sphere into the chat area (right of the sidebar)
+    world.position.x = w > 860 ? 1.2 : 0; camera.position.z = w < 600 ? 9 : 7;
+    camera.updateProjectionMatrix();
+  }
+  addEventListener("resize", resize); resize();
+
+  const clock = new THREE.Clock(); let running = true;
+  document.addEventListener("visibilitychange", () => { running = !document.hidden; if (running) { clock.getDelta(); loop(); } });
+  const tmp = new THREE.Vector3();
+  function loop() {
+    if (!running) return;
+    const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime;
+    fx.energy += (fx.target - fx.energy) * Math.min(1, dt * 3);
+    const e = fx.energy, speed = reduced ? 0 : .08 + e * .9;
+    sphere.rotation.y += velY + speed * dt; sphere.rotation.x += velX;
+    velX *= .92; velY *= .92;
+    core.rotation.x -= dt * (.2 + e); core.rotation.y += dt * (.3 + e * 1.5);
+    const s = 1 + Math.sin(t * (2 + e * 6)) * (.03 + e * .08); core.scale.setScalar(s);
+    core.material.opacity = .3 + e * .5; halo.material.opacity = .35 + e * .45 + Math.sin(t * 2) * .05;
+    lMat.opacity = .12 + e * .45; pMat.size = .085 + e * .05;
+    rings.forEach((r, i) => { r.rotation.z += dt * (i ? -.15 : .2) * (1 + e * 4); });
+    stars.rotation.y += dt * .01;
+    // Scatter (delete) - push nodes outward, then reassemble
+    if (scatter > 0.001 || e > .01) {
+      scatter *= Math.pow(.25, dt);
+      const p = pGeo.attributes.position;
+      for (let i = 0; i < N; i++) {
+        const b = base[i], k = 1 + scatter * (2 + (i % 7) * .4) + (e > .5 ? Math.sin(t * 8 + i) * .015 * e : 0);
+        p.setXYZ(i, b.x * k, b.y * k, b.z * k);
+      }
+      p.needsUpdate = true;
+    }
+    // Flyers travel along a curve into the sphere, then fade
+    for (let i = flyers.length - 1; i >= 0; i--) {
+      const f = flyers[i]; f.t += dt * .9;
+      const k = Math.max(0, Math.min(1, f.t)), ease = 1 - Math.pow(1 - k, 3);
+      tmp.lerpVectors(f.from, f.to.clone().applyEuler(sphere.rotation), ease); tmp.y += Math.sin(k * Math.PI) * 1.2;
+      f.m.position.copy(tmp); f.m.rotation.x += f.spin.x * dt * 6; f.m.rotation.y += f.spin.y * dt * 6;
+      f.m.material.opacity = k < .9 ? 1 : (1 - k) * 10;
+      if (f.t >= 1) { world.remove(f.m); f.m.material.dispose(); flyers.splice(i, 1); }
+    }
+    camera.position.x += (mx * .8 - camera.position.x) * .04;
+    camera.position.y += (-my * .6 - camera.position.y) * .04;
+    camera.lookAt(world.position.x * .6, 0, 0);
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+/* =====================================================================
+   UI helpers: 3D tilt, ripples, toasts
+   ===================================================================== */
+function tilt(el, max = 10) {
+  if (reduced || matchMedia("(hover: none)").matches) return;
+  el.addEventListener("pointermove", e => {
+    const r = el.getBoundingClientRect(), x = (e.clientX - r.left) / r.width - .5, y = (e.clientY - r.top) / r.height - .5;
+    el.style.transform = `perspective(700px) rotateX(${-y * max}deg) rotateY(${x * max}deg) translateZ(4px)`;
+  });
+  el.addEventListener("pointerleave", () => { el.style.transform = ""; });
+}
+document.querySelectorAll("[data-tilt]").forEach(el => tilt(el, 6));
+
+function ripple(btn, e) {
+  const r = btn.getBoundingClientRect(), d = Math.max(r.width, r.height), s = document.createElement("span");
+  s.className = "ripple"; s.style.cssText = `width:${d}px;height:${d}px;left:${(e?.clientX ?? r.left + r.width / 2) - r.left - d / 2}px;top:${(e?.clientY ?? r.top + r.height / 2) - r.top - d / 2}px`;
+  btn.appendChild(s); setTimeout(() => s.remove(), 650);
+}
+
+function toast(text, kind = "ok") {
+  const t = document.createElement("div");
+  t.className = `toast glass ${kind}`; t.textContent = text; $("toasts").appendChild(t);
+  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 3200);
+}
+
+/* =====================================================================
+   App logic
+   ===================================================================== */
+let mermaid = null;
+import("https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs")
+  .then(m => { mermaid = m.default; mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "strict" }); })
+  .catch(() => { /* diagrams fall back to showing their source */ });
+
 const msgs = $("msgs"), q = $("q"), send = $("send"), files = $("files");
-let session = null, timerHandle = null, diagramCount = 0;
+let session = null, timerHandle = null, diagramCount = 0, ttl = 7200;
 
 function showEmpty() {
-  msgs.innerHTML = `<div class="empty" id="empty">
-    <p><strong>Add a document</strong>, then ask anything about it.</p>
-    <p>Answers come only from your files, with the exact passages shown.</p>
+  msgs.classList.remove("active");
+  msgs.innerHTML = `<div class="hero" id="empty">
+    <h2>Ask your documents <span class="g">anything.</span></h2>
+    <p>Drop in a PDF, Word file or scan. Answers come only from your files, with the exact passages shown, and nothing is ever kept.</p>
     <div class="hints">
-      <button class="ghost" type="button" data-q="Summarise the main points">Summarise</button>
-      <button class="ghost" type="button" data-q="Explain how it works with a diagram">Explain with a diagram</button>
-    </div></div>`;
+      <button class="card" type="button" data-q="Summarise the main points"><span class="e">✨</span><b>Summarise</b><small>The key points in seconds</small></button>
+      <button class="card" type="button" data-q="Explain how it works with a diagram"><span class="e">🧭</span><b>Draw a diagram</b><small>Turn processes into flowcharts</small></button>
+      <button class="card" type="button" data-q="What are the most important numbers, dates and deadlines?"><span class="e">📅</span><b>Find key facts</b><small>Numbers, dates, deadlines</small></button>
+    </div>
+    <div class="hint-hint">Tip: drag the sphere to spin it</div></div>`;
+  msgs.querySelectorAll(".card").forEach(c => tilt(c, 14));
 }
 msgs.addEventListener("click", e => { const b = e.target.closest("[data-q]"); if (b) { q.value = b.dataset.q; $("ask").requestSubmit(); } });
 
@@ -145,11 +471,13 @@ async function api(method, url, body, headers = {}) {
 // ---- session ----
 async function startSession() {
   const s = await api("POST", "/sessions");
-  session = s; sessionStorage.setItem("sid", s.session_id);
+  session = s; ttl = s.ttl_seconds || ttl;
+  sessionStorage.setItem("sid", s.session_id); sessionStorage.setItem("ttl", ttl);
   renderDocs([]); showEmpty(); startTimer();
 }
 async function resumeOrStart() {
   const sid = sessionStorage.getItem("sid");
+  ttl = +sessionStorage.getItem("ttl") || ttl;
   if (sid) {
     try { const s = await api("GET", "/sessions/" + sid); session = s; renderDocs(s.documents); showEmpty(); startTimer(); return; }
     catch { /* expired or deleted - start fresh */ }
@@ -158,70 +486,94 @@ async function resumeOrStart() {
 }
 function startTimer() {
   clearInterval(timerHandle);
+  const prog = $("ringProg"), C = 2 * Math.PI * 31;
   const tick = () => {
     const left = Math.max(0, session.expires_at - Math.floor(Date.now() / 1000));
-    const h = String(Math.floor(left / 3600)).padStart(2, "0"), m = String(Math.floor(left % 3600 / 60)).padStart(2, "0"), s = String(left % 60).padStart(2, "0");
-    $("timer").textContent = `${h}:${m}:${s}`;
-    $("timer").classList.toggle("low", left < 600);
-    if (left === 0) { clearInterval(timerHandle); startSession(); }
+    const h = Math.floor(left / 3600), m = String(Math.floor(left % 3600 / 60)).padStart(2, "0"), s = String(left % 60).padStart(2, "0");
+    $("timer").textContent = h ? `${h}:${m}:${s}` : `${m}:${s}`;
+    prog.style.strokeDashoffset = String(C * (1 - left / ttl));
+    $("ring").classList.toggle("low", left < 600);
+    if (left === 0) { clearInterval(timerHandle); fx.scatter(); toast("Session expired - your data was deleted"); startSession(); }
   };
   tick(); timerHandle = setInterval(tick, 1000);
 }
-$("wipe").addEventListener("click", async () => {
+$("wipe").addEventListener("click", async e => {
   if (!confirm("Delete all documents in this session now? This cannot be undone.")) return;
+  ripple(e.currentTarget, e);
   await api("DELETE", "/sessions/" + session.session_id).catch(() => {});
+  fx.scatter(); toast("All your data was deleted");
   await startSession();
 });
 
 // ---- documents ----
-function fileRow(name, status, isErr) {
+function fileRow(name, status, kind) {
   const li = document.createElement("li");
-  li.innerHTML = "<span></span><span></span>";
-  li.firstChild.textContent = name; li.firstChild.title = name;
-  li.lastChild.textContent = status;
-  if (isErr) li.classList.add("err");
+  const ext = (name.split(".").pop() || "").slice(0, 4).toUpperCase();
+  li.innerHTML = `<span class="fi"></span><span class="nm"></span><span class="st"></span>`;
+  li.querySelector(".fi").textContent = ext;
+  li.querySelector(".nm").textContent = name; li.querySelector(".nm").title = name;
+  li.querySelector(".st").textContent = status;
+  if (kind) li.classList.add(kind);
   return li;
 }
 function renderDocs(docs) {
-  files.replaceChildren(...docs.map(d => fileRow(d.source, d.chunks + " chunks")));
-  $("docsTitle").textContent = docs.length ? `Documents in this session (${docs.length})` : "No documents yet";
+  files.replaceChildren(...docs.map((d, i) => { const li = fileRow(d.source, d.chunks + " chunks"); li.style.animationDelay = i * 60 + "ms"; return li; }));
+  if (!docs.length) files.innerHTML = `<li class="empty-files" style="border:0;background:none;padding:4px 2px">Nothing yet. Your files will appear here.</li>`;
+  $("docsTitle").textContent = docs.length ? `Documents · ${docs.length}` : "Documents";
 }
 async function refreshDocs() {
   const s = await api("GET", "/sessions/" + session.session_id);
   renderDocs(s.documents);
 }
 async function upload(list) {
+  files.querySelector(".empty-files")?.remove();
+  let ok = 0;
   for (const f of list) {
-    const li = fileRow(f.name, "Uploading…");
+    const li = fileRow(f.name, "Reading…", "busy");
     files.prepend(li);
+    fx.burst(10);
     try {
       await api("POST", `/sessions/${session.session_id}/files?name=${encodeURIComponent(f.name)}`, f,
         { "Content-Type": "application/octet-stream" });
-      li.lastChild.textContent = "Done ✓";
+      li.classList.remove("busy"); li.querySelector(".st").textContent = "Done ✓"; ok++;
     } catch (err) {
       if (err.status === 404) { await startSession(); return upload(list); }
-      li.classList.add("err"); li.lastChild.textContent = err.message; continue;
+      li.classList.remove("busy"); li.classList.add("err"); li.querySelector(".st").textContent = err.message;
+      toast(`${f.name}: ${err.message}`, "bad");
     }
   }
   const errors = [...files.querySelectorAll("li.err")];
   await refreshDocs();
   errors.forEach(e => files.prepend(e));  // keep failures visible after the refresh
+  if (ok) { fx.burst(24); toast(`${ok} document${ok > 1 ? "s" : ""} ready - ask away`); }
 }
 $("file").addEventListener("change", e => { upload([...e.target.files]); e.target.value = ""; });
 const drop = $("drop");
 ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
 ["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", e => upload([...e.dataTransfer.files]));
+// Dropping anywhere on the page works too
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { if (!e.target.closest("#drop")) { e.preventDefault(); if (e.dataTransfer?.files.length) upload([...e.dataTransfer.files]); } });
 $("toggle").addEventListener("click", () => $("side").classList.toggle("open"));
+$("scrim").addEventListener("click", () => $("side").classList.remove("open"));
 
 // ---- chat ----
 function addMsg(role, text) {
-  $("empty")?.remove();
+  $("empty")?.remove(); msgs.classList.add("active");
   const el = document.createElement("div");
   el.className = "msg " + role;
   el.textContent = text;
   msgs.appendChild(el);
   msgs.scrollTop = msgs.scrollHeight;
+  return el;
+}
+function addTyping() {
+  $("empty")?.remove(); msgs.classList.add("active");
+  const el = document.createElement("div");
+  el.className = "msg bot";
+  el.innerHTML = `<span class="typing"><i></i><i></i><i></i>&nbsp;Searching your documents…</span>`;
+  msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
   return el;
 }
 
@@ -239,37 +591,46 @@ async function renderAnswer(data) {
   $("empty")?.remove();
   const el = document.createElement("div");
   el.className = "msg bot";
+  let i = 0;
+  const add = node => { node.classList.add("blk"); node.style.setProperty("--i", i++); el.appendChild(node); };
   // Split the answer into text and fenced code blocks; mermaid blocks become diagrams.
   const parts = data.answer.split(/```(\w*)\n([\s\S]*?)```/g);
-  for (let i = 0; i < parts.length; i += 3) {
-    if (parts[i].trim()) { const p = document.createElement("p"); p.innerHTML = miniMarkdown(parts[i].trim()); el.appendChild(p); }
-    if (i + 2 >= parts.length) break;
-    const lang = parts[i + 1], code = parts[i + 2];
+  for (let k = 0; k < parts.length; k += 3) {
+    // Each paragraph animates in separately for a "streaming" feel.
+    parts[k].trim().split(/\n{2,}/).filter(Boolean).forEach(para => {
+      const p = document.createElement("p"); p.innerHTML = miniMarkdown(para.trim()); add(p);
+    });
+    if (k + 2 >= parts.length) break;
+    const lang = parts[k + 1], code = parts[k + 2];
     if (lang === "mermaid" && mermaid) {
       const box = document.createElement("div"); box.className = "diagram";
       try { box.innerHTML = (await mermaid.render("d" + (++diagramCount), code)).svg; }
       catch { const pre = document.createElement("pre"); pre.textContent = code; box.replaceChildren(pre); }
-      el.appendChild(box);
+      add(box);
     } else {
-      const pre = document.createElement("pre"); pre.textContent = code; el.appendChild(pre);
+      const pre = document.createElement("pre"); pre.textContent = code; add(pre);
     }
   }
   if (data.sources?.length) {
     const s = document.createElement("div"); s.className = "src";
-    data.sources.forEach(n => { const t = document.createElement("span"); t.textContent = n; s.appendChild(t); });
-    el.appendChild(s);
+    data.sources.forEach(n => { const t = document.createElement("span"); t.textContent = "📄 " + n; s.appendChild(t); });
+    add(s);
   }
   if (data.citations?.length) {
     const d = document.createElement("details");
     d.innerHTML = `<summary>Show the ${data.citations.length} passages used</summary>`;
     data.citations.forEach(c => {
       const div = document.createElement("div"); div.className = "cite";
-      div.innerHTML = "<b></b><br><span></span>";
+      div.innerHTML = `<b></b><div class="bar"><i></i></div><span></span>`;
       div.querySelector("b").textContent = `${c.source} · match ${Math.round(c.score * 100)}%`;
       div.querySelector("span").textContent = c.text;
       d.appendChild(div);
     });
-    el.appendChild(d);
+    d.addEventListener("toggle", () => {
+      if (d.open) d.querySelectorAll(".cite").forEach((div, n) =>
+        requestAnimationFrame(() => div.querySelector(".bar i").style.width = Math.round(data.citations[n].score * 100) + "%"));
+    });
+    add(d);
   }
   msgs.appendChild(el);
   msgs.scrollTop = msgs.scrollHeight;
@@ -279,10 +640,12 @@ $("ask").addEventListener("submit", async e => {
   e.preventDefault();
   const question = q.value.trim();
   if (!question) return;
+  ripple(send, e.submitter ? e : null);
   addMsg("user", question);
   q.value = ""; q.style.height = "";
   send.disabled = true;
-  const pending = addMsg("bot typing", "Thinking…");
+  fx.pulse(true);
+  const pending = addTyping();
   try {
     const data = await api("POST", `/sessions/${session.session_id}/chat`, JSON.stringify({ question }),
       { "Content-Type": "application/json" });
@@ -293,6 +656,7 @@ $("ask").addEventListener("submit", async e => {
     addMsg("bot err", err.status === 404 ? "Your session expired and its data was deleted. Please add your documents again." : "Error: " + err.message);
     if (err.status === 404) await startSession();
   } finally {
+    fx.pulse(false);
     send.disabled = false; q.focus();
   }
 });
